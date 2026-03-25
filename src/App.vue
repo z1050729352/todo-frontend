@@ -1,60 +1,86 @@
 <script setup>
-	import { ref, onMounted } from 'vue';
-	import axios from 'axios';
+import { ref } from 'vue';
+import GameStart from './components/GameStart.vue';
+import PlaneGame from './components/PlaneGame.vue';
+import Leaderboard from './components/Leaderboard.vue';
 
-	const todos = ref([]);
-	const newTodo = ref('');
+const gameState = ref('start'); // start, playing, leaderboard
+const playerName = ref('');
+const difficulty = ref('medium');
+const finalScore = ref(0);
 
-	const api = axios.create({
-		baseURL: 'https://firstapiproject-production.up.railway.app/api',
-	});
+function startGame(name, diff) {
+  playerName.value = name;
+  difficulty.value = diff;
+  gameState.value = 'playing';
+}
 
-	async function fetchTodos() {
-		const { data } = await api.get('/todos');
-		todos.value = data;
-	}
+function gameOver(score) {
+  console.log('游戏结束，分数:', score);
+  finalScore.value = score;
+  gameState.value = 'leaderboard';
+  console.log('切换到排行榜页面，玩家:', playerName.value, '难度:', difficulty.value, '分数:', finalScore.value);
+}
 
-	async function addTodo() {
-		if (!newTodo.value) return;
-		await api.post('/todos', { title: newTodo.value });
-		newTodo.value = '';
-		fetchTodos();
-	}
-
-	async function toggleTodo(todo) {
-		await api.put(`/todos/${todo._id}`, { completed: !todo.complated });
-		fetchTodos();
-	}
-
-	async function deleteTodo(id) {
-		await api.delete(`/todos/${id}`);
-		fetchTodos();
-	}
-
-	onMounted(fetchTodos);
+function backToStart() {
+  gameState.value = 'start';
+  playerName.value = '';
+  finalScore.value = 0;
+}
 </script>
 
 <template>
-	<div class="app">
-		<h1>哈哈待办事项</h1>
-		<div class="input-group">
-			<input type="text" v-model="newTodo" @keyup.enter="addTodo" placeholder="添加新任务" />
-			<button @click="addTodo">添加</button>
-		</div>
-		<ul>
-			<li v-for="todo in todos" :key="todo._id">
-				<input type="checkbox" :checked="todo.completed" @change="toggleTodo(todo)" />
-				<span :class="{ completed: todo.complated }">
-					{{ todo.title }}
-				</span>
-				<button @click="deleteTodo(todo._id)">删除</button>
-			</li>
-		</ul>
-	</div>
+  <div class="app">
+    <GameStart 
+      v-if="gameState === 'start'" 
+      @start="startGame"
+    />
+    <PlaneGame 
+      v-else-if="gameState === 'playing'"
+      :playerName="playerName"
+      :difficulty="difficulty"
+      @gameOver="gameOver"
+    />
+    <Leaderboard 
+      v-else-if="gameState === 'leaderboard'"
+      :playerName="playerName"
+      :score="finalScore"
+      :difficulty="difficulty"
+      @restart="backToStart"
+    />
+  </div>
 </template>
 
 <style>
-	.completed {
-		text-decoration: line-through;
-	}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+.app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
 </style>
