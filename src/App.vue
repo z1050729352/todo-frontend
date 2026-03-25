@@ -36,7 +36,7 @@
 
 <template>
 	<div class="app">
-		<h1>我的待办事项</h1>
+		<h1>待办事项</h1>
 		<div class="input-group">
 			<input type="text" v-model="newTodo" @keyup.enter="addTodo" placeholder="添加新任务" />
 			<button @click="addTodo">添加</button>
