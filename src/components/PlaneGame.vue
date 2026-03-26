@@ -235,7 +235,6 @@ let slowZones = []; // 改名为slowZones
 
 // 环境效果
 let slowEffect = { active: false, endTime: 0 };
-let phantomEffect = { active: false, endTime: 0, actions: [] };
 let barrier = { active: false, health: 0, maxHealth: 4 };
 let playerSlowEffect = { active: false, endTime: 0, speedMultiplier: 1 }; // 玩家减速效果
 
@@ -289,7 +288,6 @@ const POWERUP_TYPES = {
   
   // 环境型
   SLOW: { color: '#9e9e9e', symbol: '缓', name: '延缓', weight: 0.5 },
-  PHANTOM: { color: '#673ab7', symbol: '影', name: '幻影', weight: 0.5 },
   
   // 全图爆炸
   LIGHTNING: { color: '#ffeb3b', symbol: '毁', name: '闪电', weight: 0.1 }
@@ -710,19 +708,25 @@ class Boss {
       this.moveSpeed = 2;
     }
     
-    // 血量大幅提升，随等级递增
-    const baseHealth = attackType === 'buff' ? 800 : 300;
-    this.maxHealth = baseHealth + level * 100;
+    // 血量大幅提升，随等级递增，中后期更强
+    const baseHealth = attackType === 'buff' ? 1200 : 400; // 提高基础血量
+    // 5级以后血量增长加速
+    const healthGrowth = level <= 5 ? level * 120 : 600 + (level - 5) * 180;
+    this.maxHealth = baseHealth + healthGrowth;
     this.health = this.maxHealth;
     
-    // 防御系统：减少受到的伤害百分比，前期更低
-    // 1级: 20%, 2级: 25%, 3级: 30%, 4级+: 35%+
+    // 防御系统：中后期大幅加强
     if (level === 1) {
       this.defense = 0.2; // 1级20%
     } else if (level === 2) {
       this.defense = 0.25; // 2级25%
+    } else if (level === 3) {
+      this.defense = 0.3; // 3级30%
+    } else if (level <= 5) {
+      this.defense = 0.35 + (level - 4) * 0.05; // 4-5级：35%-40%
     } else {
-      this.defense = Math.min(0.3 + (level - 3) * 0.05, 0.75); // 3级起30%，每级+5%，最高75%
+      // 6级以后防御大幅提升
+      this.defense = Math.min(0.45 + (level - 6) * 0.06, 0.85); // 6级起45%，每级+6%，最高85%
     }
     
     this.lastAttackTime = 0;
@@ -1018,10 +1022,10 @@ class SlowZone {
   }
   
   applySlowEffect(player) {
-    // 触发减速效果：3秒内飞机移动速度减半
+    // 触发减速效果：3秒内飞机移动速度大幅降低
     playerSlowEffect.active = true;
     playerSlowEffect.endTime = performance.now() + 3000;
-    playerSlowEffect.speedMultiplier = 0.5;
+    playerSlowEffect.speedMultiplier = 0.2; // 改为0.2，速度降低到20%，更明显
     
     // 减速特效
     for (let i = 0; i < 15; i++) {
@@ -1088,11 +1092,6 @@ function applyPowerUp(type) {
     // 延缓：减慢敌机5秒
     slowEffect.active = true;
     slowEffect.endTime = performance.now() + 5000;
-  } else if (type === 'PHANTOM') {
-    // 幻影：10秒
-    phantomEffect.active = true;
-    phantomEffect.endTime = performance.now() + 10000;
-    phantomEffect.actions = [];
   } else if (type === 'BARRIER') {
     // 防护罩：刷新血量
     barrier.active = true;
@@ -1125,26 +1124,6 @@ class Particle {
   }
 }
 
-class Phantom {
-  constructor(x, y) {
-    this.x = x;
-    this.y = y;
-  }
-
-  draw() {
-    ctx.globalAlpha = 0.4;
-    ctx.fillStyle = '#673ab7';
-    ctx.beginPath();
-    ctx.moveTo(this.x, this.y - 20);
-    ctx.lineTo(this.x - 15, this.y + 20);
-    ctx.lineTo(this.x, this.y + 10);
-    ctx.lineTo(this.x + 15, this.y + 20);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-}
-
 class Barrier {
   draw() {
     if (!barrier.active || barrier.health <= 0) return;
@@ -1152,7 +1131,7 @@ class Barrier {
     const y = canvas.value.height - 30;
     const healthPercent = barrier.health / barrier.maxHealth;
     
-    // 防护罩
+    // 防护罩线
     ctx.strokeStyle = `rgba(121, 85, 72, ${0.3 + healthPercent * 0.4})`;
     ctx.lineWidth = 4;
     ctx.beginPath();
@@ -1167,6 +1146,15 @@ class Barrier {
       ctx.arc(i, y, 3, 0, Math.PI * 2);
       ctx.fill();
     }
+    
+    // 显示防护罩血量
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(10, y - 25, 60, 15);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`墙 ${barrier.health}/${barrier.maxHealth}`, 15, y - 13);
   }
 }
 
@@ -1438,42 +1426,12 @@ function gameLoop(currentTime) {
   if (player) {
     player.draw();
     autoShoot(currentTime);
-    
-    // 记录幻影动作
-    if (phantomEffect.active) {
-      phantomEffect.actions.push({ x: player.x, y: player.y, time: currentTime });
-      // 只保留1秒内的动作
-      phantomEffect.actions = phantomEffect.actions.filter(a => currentTime - a.time < 1000);
-    }
-  }
-  
-  // 绘制幻影
-  if (phantomEffect.active && phantomEffect.actions.length > 0) {
-    const oldestAction = phantomEffect.actions[0];
-    if (oldestAction) {
-      new Phantom(oldestAction.x, oldestAction.y).draw();
-      
-      // 幻影也发射子弹（1秒前的位置）
-      if (currentTime - lastShootTime > config.initialFireRate - (playerWeapon.value.fireRate - 1) * 30) {
-        const bulletType = playerWeapon.value.bulletType;
-        const bulletLevel = playerWeapon.value.bulletLevel;
-        const spreadLevel = playerWeapon.value.spreadLevel;
-        const pierceLevel = playerWeapon.value.pierceLevel;
-        
-        if (bullets.length < MAX_BULLETS) {
-          const phantomBullet = new Bullet(oldestAction.x, oldestAction.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, 0);
-          bullets.push(phantomBullet);
-        }
-      }
-    }
   }
   
   // 更新环境效果
   if (slowEffect.active && currentTime > slowEffect.endTime) {
     slowEffect.active = false;
   }
-  if (phantomEffect.active && currentTime > phantomEffect.endTime) {
-    phantomEffect.active = false;
     phantomEffect.actions = [];
   }
 

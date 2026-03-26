@@ -100,7 +100,6 @@ function toggleGuide() {
             <div class="abbr-item"><span class="abbr">盾</span> = 护盾</div>
             <div class="abbr-item"><span class="abbr">墙</span> = 防护罩</div>
             <div class="abbr-item"><span class="abbr">缓</span> = 延缓</div>
-            <div class="abbr-item"><span class="abbr">影</span> = 幻影</div>
             <div class="abbr-item"><span class="abbr">毁</span> = 毁灭</div>
           </div>
         </div>
@@ -155,6 +154,10 @@ function toggleGuide() {
             <div class="weapon-item">
               <span class="weapon-icon" style="background: #607d8b;">盾</span>
               <span>护盾</span>
+            </div>
+            <div class="weapon-item">
+              <span class="weapon-icon" style="background: #795548;">墙</span>
+              <span>防护罩</span>
             </div>
             <div class="weapon-item">
               <span class="weapon-icon" style="background: #9e9e9e;">缓</span>
