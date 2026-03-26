@@ -73,7 +73,7 @@ function initSounds() {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
     // 普通射击音效 - 清脆的"哒"声
-    sounds.shoot = (weaponTypes = ['normal']) => {
+    sounds.shoot = (weaponType = 'normal') => {
       try {
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
@@ -81,7 +81,7 @@ function initSounds() {
         gainNode.connect(audioContext.destination);
         
         // 根据武器类型调整音效
-        if (weaponTypes.includes('laser')) {
+        if (weaponType === 'laser') {
           // 激光：高频持续音
           oscillator.frequency.value = 1800;
           oscillator.type = 'sine';
@@ -89,7 +89,7 @@ function initSounds() {
           gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.08);
           oscillator.start(audioContext.currentTime);
           oscillator.stop(audioContext.currentTime + 0.08);
-        } else if (weaponTypes.includes('explosive')) {
+        } else if (weaponType === 'explosive') {
           // 爆炸弹：低沉有力
           oscillator.frequency.value = 200;
           oscillator.type = 'sawtooth';
@@ -97,7 +97,7 @@ function initSounds() {
           gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.12);
           oscillator.start(audioContext.currentTime);
           oscillator.stop(audioContext.currentTime + 0.12);
-        } else if (weaponTypes.includes('pierce')) {
+        } else if (weaponType === 'pierce') {
           // 穿甲弹：尖锐穿透感
           oscillator.frequency.value = 1500;
           oscillator.type = 'triangle';
@@ -105,14 +105,14 @@ function initSounds() {
           gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.06);
           oscillator.start(audioContext.currentTime);
           oscillator.stop(audioContext.currentTime + 0.06);
-        } else if (weaponTypes.includes('spread')) {
-          // 散弹：短促清脆
-          oscillator.frequency.value = 1200;
-          oscillator.type = 'square';
-          gainNode.gain.setValueAtTime(0.025, audioContext.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.04);
+        } else if (weaponType === 'burst') {
+          // 爆裂弹：低沉爆裂音
+          oscillator.frequency.value = 300;
+          oscillator.type = 'sawtooth';
+          gainNode.gain.setValueAtTime(0.04, audioContext.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.08);
           oscillator.start(audioContext.currentTime);
-          oscillator.stop(audioContext.currentTime + 0.04);
+          oscillator.stop(audioContext.currentTime + 0.08);
         } else {
           // 普通子弹：清脆的"哒"
           oscillator.frequency.value = 1000;
@@ -277,13 +277,13 @@ const POWERUP_TYPES = {
   
   // 特效型导弹
   LASER: { color: '#9c27b0', symbol: 'L', name: '激光', weight: 2 },
-  SPIRAL: { color: '#00bcd4', symbol: 'R', name: '螺旋', weight: 2 },
+  BURST: { color: '#00bcd4', symbol: 'B', name: '爆裂', weight: 2 },
   PIERCE: { color: '#ffeb3b', symbol: 'P', name: '穿甲', weight: 2 },
   
   // 防护性
   HEALTH: { color: '#4caf50', symbol: '+', name: '血包', weight: 1.5 },
   SHIELD: { color: '#607d8b', symbol: 'D', name: '护盾', weight: 1.5 },
-  BARRIER: { color: '#795548', symbol: 'B', name: '防护罩', weight: 1 },
+  BARRIER: { color: '#795548', symbol: 'X', name: '防护罩', weight: 1 },
   
   // 环境型
   SLOW: { color: '#9e9e9e', symbol: 'T', name: '延缓', weight: 0.5 },
@@ -322,12 +322,12 @@ class Player {
     ctx.fill();
     
     // 根据武器类型改变机翼颜色
-    const types = playerWeapon.value.types;
+    const bulletType = playerWeapon.value.bulletType;
     let wingColor = '#6bb6ff';
-    if (types.includes('spread')) wingColor = '#2196f3';
-    if (types.includes('explosive')) wingColor = '#ff9800';
-    if (types.includes('laser')) wingColor = '#9c27b0';
-    if (types.includes('pierce')) wingColor = '#ffeb3b';
+    if (bulletType === 'laser') wingColor = '#9c27b0';
+    if (bulletType === 'explosive') wingColor = '#ff9800';
+    if (bulletType === 'burst') wingColor = '#00bcd4';
+    if (playerWeapon.value.spreadLevel > 0) wingColor = '#2196f3';
     
     ctx.fillStyle = wingColor;
     ctx.fillRect(this.x - 20, this.y, 40, 8);
@@ -356,17 +356,18 @@ class Bullet {
     this.pierceLevel = pierceLevel;
     this.angle = angle; // 散弹角度
     this.speed = config.bulletSpeed;
-    this.rotation = 0; // 螺旋弹旋转角度
     
     // 根据弹道类型设置属性
     if (bulletType === 'laser') {
-      this.width = 6;
-      this.height = 40;
+      // 激光线
+      this.width = 3;
+      this.height = 50;
       this.damage = 3 + bulletLevel;
-      this.hitRadius = 8;
-    } else if (bulletType === 'spiral') {
-      this.width = 12 + bulletLevel * 2; // 螺旋弹宽度随等级增加
-      this.height = 12 + bulletLevel * 2;
+      this.hitRadius = 5;
+    } else if (bulletType === 'burst') {
+      // 爆裂球：等级越高球越大
+      this.width = 10 + bulletLevel * 3;
+      this.height = 10 + bulletLevel * 3;
       this.damage = 2 + bulletLevel;
       this.hitRadius = this.width / 2;
     } else if (bulletType === 'explosive') {
@@ -398,43 +399,36 @@ class Bullet {
       ctx.lineWidth = 2;
       ctx.stroke();
     } else if (this.bulletType === 'laser') {
-      // 激光：长条紫色光束
-      const gradient = ctx.createLinearGradient(this.x, this.y - 20, this.x, this.y + 20);
-      gradient.addColorStop(0, 'rgba(156, 39, 176, 0.3)');
-      gradient.addColorStop(0.5, '#9c27b0');
-      gradient.addColorStop(1, 'rgba(156, 39, 176, 0.3)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(this.x - 3, this.y - 20, 6, 40);
+      // 激光线：紫色线条
+      ctx.strokeStyle = '#9c27b0';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y - 25);
+      ctx.lineTo(this.x, this.y + 25);
+      ctx.stroke();
       
-      // 激光核心
-      ctx.fillStyle = '#e1bee7';
-      ctx.fillRect(this.x - 1, this.y - 20, 2, 40);
-    } else if (this.bulletType === 'spiral') {
-      // 螺旋弹：旋转的青色能量球
-      ctx.save();
-      ctx.translate(this.x, this.y);
-      ctx.rotate(this.rotation);
-      
-      // 外圈旋转效果
-      for (let i = 0; i < 3; i++) {
-        ctx.strokeStyle = `rgba(0, 188, 212, ${0.6 - i * 0.2})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, this.hitRadius + i * 3, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      
-      // 核心
-      const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, this.hitRadius);
+      // 核心白线
+      ctx.strokeStyle = '#e1bee7';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y - 25);
+      ctx.lineTo(this.x, this.y + 25);
+      ctx.stroke();
+    } else if (this.bulletType === 'burst') {
+      // 爆裂球：青色能量球，等级越高越大
+      const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.hitRadius);
       gradient.addColorStop(0, '#e0f7fa');
       gradient.addColorStop(0.5, '#00bcd4');
-      gradient.addColorStop(1, 'rgba(0, 188, 212, 0.5)');
+      gradient.addColorStop(1, 'rgba(0, 188, 212, 0.3)');
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.arc(0, 0, this.hitRadius, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, this.hitRadius, 0, Math.PI * 2);
       ctx.fill();
       
-      ctx.restore();
+      // 外圈
+      ctx.strokeStyle = '#00bcd4';
+      ctx.lineWidth = 2;
+      ctx.stroke();
     } else {
       // 普通/穿甲弹
       ctx.fillStyle = this.pierce ? '#ffeb3b' : '#4caf50';
@@ -453,11 +447,6 @@ class Bullet {
       this.x += Math.sin(this.angle) * this.speed * 0.3;
     }
     this.y -= this.speed;
-    
-    // 螺旋弹旋转
-    if (this.bulletType === 'spiral') {
-      this.rotation += 0.2;
-    }
   }
   
   // 检查是否击中目标
@@ -604,12 +593,31 @@ class Boss {
   constructor(level, attackType) {
     this.x = canvas.value.width / 2;
     this.y = 80;
-    this.width = 80;
-    this.height = 80;
-    this.maxHealth = 50 + level * 20;
-    this.health = this.maxHealth;
     this.level = level;
     this.attackType = attackType;
+    
+    // 根据类型设置属性
+    if (attackType === 'small-fast') {
+      // Boss 6: 小而快
+      this.width = 50;
+      this.height = 50;
+      this.moveSpeed = 4;
+    } else if (attackType === 'buff') {
+      // Boss 9: buff boss
+      this.width = 100;
+      this.height = 100;
+      this.moveSpeed = 1;
+    } else {
+      this.width = 80;
+      this.height = 80;
+      this.moveSpeed = 2;
+    }
+    
+    // 血量随等级递增
+    const baseHealth = attackType === 'buff' ? 150 : 50;
+    this.maxHealth = baseHealth + level * 20;
+    this.health = this.maxHealth;
+    
     this.lastAttackTime = 0;
     this.attackInterval = 1000;
     this.moveDirection = 1;
@@ -623,10 +631,12 @@ class Boss {
       laser: '#ff0066',
       spread: '#9c27b0',
       circle: '#2196f3',
-      wave: '#00bcd4',
-      cross: '#ff5722',
-      random: '#4caf50',
-      ultimate: '#ffd700'
+      'left-right': '#00bcd4',
+      'right-left': '#ff5722',
+      'small-fast': '#4caf50',
+      'big-spread': '#e91e63',
+      'laser-line': '#9c27b0',
+      'buff': '#ffd700'
     };
     return colors[type] || '#ff6b00';
   }
@@ -663,8 +673,11 @@ class Boss {
   }
 
   update(currentTime) {
-    // 横向移动
-    this.x += this.moveDirection * 2;
+    // 根据类型调整移动速度
+    const speed = this.attackType === 'small-fast' ? this.moveSpeed : 
+                  this.attackType === 'buff' ? this.moveSpeed : 2;
+    
+    this.x += this.moveDirection * speed;
     if (this.x < 50 || this.x > canvas.value.width - 50) {
       this.moveDirection *= -1;
     }
@@ -687,76 +700,99 @@ class Boss {
     if (sounds.bossSkill) sounds.bossSkill();
     
     if (this.attackType === 'spiral') {
+      // Boss 1: 螺旋
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2 + Date.now() * 0.005;
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
-    } else if (this.attackType === 'laser') {
-      for (let i = -2; i <= 2; i++) {
-        bossBullets.push(new BossBullet(this.x + i * 15, this.y + 20, Math.PI / 2, this.damage, 8));
-      }
     } else if (this.attackType === 'spread') {
+      // Boss 2: 扇形
       for (let i = -3; i <= 3; i++) {
         const angle = Math.PI / 2 + (i * Math.PI / 12);
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
     } else if (this.attackType === 'circle') {
+      // Boss 3: 圆形
       for (let i = 0; i < 12; i++) {
         const angle = (i / 12) * Math.PI * 2;
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
-    } else if (this.attackType === 'wave') {
-      for (let i = -4; i <= 4; i++) {
-        const angle = Math.PI / 2 + Math.sin(Date.now() * 0.01 + i) * 0.5;
-        bossBullets.push(new BossBullet(this.x + i * 10, this.y + 20, angle, this.damage));
+    } else if (this.attackType === 'left-right') {
+      // Boss 4: 从左往右
+      for (let i = 0; i < 5; i++) {
+        const angle = -Math.PI / 6 + (i * Math.PI / 12);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
-    } else if (this.attackType === 'cross') {
-      [0, Math.PI / 2, Math.PI, Math.PI * 1.5].forEach(angle => {
-        for (let i = 0; i < 3; i++) {
-          setTimeout(() => {
-            bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
-          }, i * 100);
-        }
-      });
-    } else if (this.attackType === 'random') {
-      for (let i = 0; i < 10; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 3 + Math.random() * 3));
+    } else if (this.attackType === 'right-left') {
+      // Boss 5: 从右往左
+      for (let i = 0; i < 5; i++) {
+        const angle = Math.PI + Math.PI / 6 - (i * Math.PI / 12);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
-    } else if (this.attackType === 'ultimate') {
-      for (let i = 0; i < 16; i++) {
-        const angle = (i / 16) * Math.PI * 2;
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
+    } else if (this.attackType === 'small-fast') {
+      // Boss 6: 小而快，快速射击
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.PI / 2 + (i - 1) * Math.PI / 8;
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 6));
       }
-      setTimeout(() => {
-        for (let i = 0; i < 16; i++) {
-          const angle = (i / 16) * Math.PI * 2 + Math.PI / 16;
-          bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
-        }
-      }, 300);
+    } else if (this.attackType === 'big-spread') {
+      // Boss 7: 超大弹幕
+      for (let i = -5; i <= 5; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 10);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
+      }
+    } else if (this.attackType === 'laser-line') {
+      // Boss 8: 激光线
+      for (let i = -1; i <= 1; i++) {
+        bossBullets.push(new BossBullet(this.x + i * 30, this.y + 20, Math.PI / 2, this.damage, 10, true));
+      }
+    } else if (this.attackType === 'buff') {
+      // Boss 9: buff boss，普通攻击
+      for (let i = -2; i <= 2; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 16);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
+      }
     }
   }
 }
 
 class BossBullet {
-  constructor(x, y, angle, damage, speed = 4) {
+  constructor(x, y, angle, damage, speed = 4, isLaser = false) {
     this.x = x;
     this.y = y;
     this.angle = angle;
     this.speed = speed;
     this.damage = damage;
     this.radius = 6;
+    this.isLaser = isLaser;
   }
 
   draw() {
-    ctx.fillStyle = '#ff0066';
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.strokeStyle = '#ff66a3';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (this.isLaser) {
+      // 激光线
+      ctx.strokeStyle = '#9c27b0';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(this.x, this.y + 30);
+      ctx.stroke();
+      
+      ctx.strokeStyle = '#e1bee7';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(this.x, this.y + 30);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#ff0066';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = '#ff66a3';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   update() {
@@ -904,12 +940,12 @@ function applyPowerUp(type) {
       playerWeapon.value.bulletType = 'laser';
       playerWeapon.value.bulletLevel = 1;
     }
-  } else if (type === 'SPIRAL') {
-    // 弹道类：螺旋（互斥）
-    if (playerWeapon.value.bulletType === 'spiral') {
+  } else if (type === 'BURST') {
+    // 弹道类：爆裂（互斥）
+    if (playerWeapon.value.bulletType === 'burst') {
       playerWeapon.value.bulletLevel = Math.min(playerWeapon.value.maxWeaponLevel, playerWeapon.value.bulletLevel + 1);
     } else {
-      playerWeapon.value.bulletType = 'spiral';
+      playerWeapon.value.bulletType = 'burst';
       playerWeapon.value.bulletLevel = 1;
     }
   } else if (type === 'RAPID') {
@@ -1137,8 +1173,8 @@ function getWeaponDisplay() {
     // 弹道类型
     if (w.bulletType === 'laser' && w.bulletLevel > 0) {
       parts.push(`${w.bulletLevel}级激光`);
-    } else if (w.bulletType === 'spiral' && w.bulletLevel > 0) {
-      parts.push(`${w.bulletLevel}级螺旋`);
+    } else if (w.bulletType === 'burst' && w.bulletLevel > 0) {
+      parts.push(`${w.bulletLevel}级爆裂`);
     } else if (w.bulletType === 'explosive' && w.bulletLevel > 0) {
       parts.push(`${w.bulletLevel}级爆炸`);
     }
@@ -1319,14 +1355,21 @@ function gameLoop(currentTime) {
   });
 
   if (!currentBoss && currentTime - startTime > nextBossTime) {
-    const attackTypes = ['spiral', 'laser', 'spread', 'circle', 'wave', 'cross', 'random', 'ultimate'];
+    const attackTypes = ['spiral', 'spread', 'circle', 'left-right', 'right-left', 'small-fast', 'big-spread', 'laser-line', 'buff'];
     let attackType;
-    if (bossLevel <= 8) {
+    if (bossLevel <= 9) {
       attackType = attackTypes[bossLevel - 1];
     } else {
+      // 9关后随机，但难度递增
       attackType = attackTypes[Math.floor(Math.random() * attackTypes.length)];
     }
     currentBoss = new Boss(bossLevel, attackType);
+    
+    // buff boss效果
+    if (attackType === 'buff') {
+      config.enemySpawnRate *= 1.5;
+    }
+    
     bossLevel++;
     nextBossTime += 35000 + Math.random() * 10000;
   }
@@ -1365,6 +1408,11 @@ function gameLoop(currentTime) {
           // 恢复血量
           const healAmount = config.bossHealPercent;
           health.value = Math.min(100, health.value + healAmount);
+          
+          // 如果是buff boss，恢复敌机生成速度
+          if (currentBoss.attackType === 'buff') {
+            config.enemySpawnRate /= 1.5;
+          }
           
           if (sounds.bossDefeat) sounds.bossDefeat();
           createExplosion(currentBoss.x, currentBoss.y, currentBoss.color);
@@ -1674,10 +1722,10 @@ canvas {
 
 .health-bar {
   width: 60px;
-  height: 6px;
+  height: 8px;
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  overflow: hidden;
+  border-radius: 4px;
+  overflow: visible;
   flex-shrink: 0;
   position: relative;
 }
@@ -1686,17 +1734,20 @@ canvas {
   height: 100%;
   background: linear-gradient(90deg, #4caf50, #8bc34a);
   transition: width 0.3s;
+  border-radius: 4px;
 }
 
 .health-text {
   position: absolute;
-  top: -14px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  font-size: 0.7rem;
+  transform: translate(-50%, -50%);
+  font-size: 0.6rem;
   color: #fff;
   font-weight: bold;
-  text-shadow: 0 0 3px rgba(0,0,0,0.8);
+  text-shadow: 0 0 2px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9);
+  pointer-events: none;
+  z-index: 1;
 }
 
 @media (max-width: 480px) {
