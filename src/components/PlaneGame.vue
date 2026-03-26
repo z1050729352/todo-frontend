@@ -1375,6 +1375,25 @@ function handleCanvasClick(e) {
   const clickX = (e.clientX - rect.left) * scaleX;
   const clickY = (e.clientY - rect.top) * scaleY;
   
+  checkPauseButtonClick(clickX, clickY);
+}
+
+function handlePauseTouch(e) {
+  if (!isPaused || !canvas.value) return;
+  e.preventDefault();
+  
+  const rect = canvas.value.getBoundingClientRect();
+  const scaleX = canvas.value.width / rect.width;
+  const scaleY = canvas.value.height / rect.height;
+  
+  const touch = e.changedTouches[0];
+  const clickX = (touch.clientX - rect.left) * scaleX;
+  const clickY = (touch.clientY - rect.top) * scaleY;
+  
+  checkPauseButtonClick(clickX, clickY);
+}
+
+function checkPauseButtonClick(clickX, clickY) {
   const btnY = canvas.value.height / 2 + 20;
   const btnWidth = 180;
   const btnHeight = 50;
@@ -2402,7 +2421,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <canvas ref="canvas" @click="handleCanvasClick"></canvas>
+    <canvas ref="canvas" @click="handleCanvasClick" @touchend="handlePauseTouch"></canvas>
   </div>
 </template>
 
