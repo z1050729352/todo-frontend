@@ -69,6 +69,8 @@ let gameStartEffect = {
   textScale: 0.5
 };
 
+let gameOfficiallyStarted = false; // 游戏正式开始标志（特效结束后才为 true）
+
 let bossWarningEffect = {
   active: false,
   startTime: 0,
@@ -1444,6 +1446,7 @@ function renderGameEffects(currentTime) {
       if (elapsed > 2000) {
         gameStartEffect.active = false;
         player.y = canvas.value.height - 100;
+        gameOfficiallyStarted = true; // 特效结束，游戏正式开始
       }
     }
   }
@@ -1730,8 +1733,8 @@ function gameLoop(currentTime) {
     return bullet.y > -20;
   });
 
-  // 生成道具（按权重随机）
-  if (Math.random() < config.powerUpRate * (1 + bossLevel * 0.1)) {
+  // 生成道具（按权重随机，仅在游戏正式开始后）
+  if (gameOfficiallyStarted && Math.random() < config.powerUpRate * (1 + bossLevel * 0.1)) {
     const types = Object.keys(POWERUP_TYPES);
     const weights = types.map(t => POWERUP_TYPES[t].weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
@@ -1763,8 +1766,8 @@ function gameLoop(currentTime) {
     return powerUp.y < canvas.value.height + 30;
   });
 
-  // 生成减速区域（偶尔出现）
-  if (Math.random() < 0.0003 && slowZones.length < 2) {
+  // 生成减速区域（偶尔出现，仅在游戏正式开始后）
+  if (gameOfficiallyStarted && Math.random() < 0.0003 && slowZones.length < 2) {
     slowZones.push(new SlowZone());
   }
 
@@ -1786,11 +1789,11 @@ function gameLoop(currentTime) {
     playerSlowEffect.speedMultiplier = 1;
   }
 
-  // Boss生成逻辑：第一个Boss按游戏开始时间，后续Boss按击败时间
+  // Boss生成逻辑：第一个Boss按游戏开始时间，后续Boss按击败时间（仅在游戏正式开始后）
   const timeSinceStart = currentTime - startTime;
   const timeSinceLastBoss = lastBossDefeatedTime > 0 ? currentTime - lastBossDefeatedTime : timeSinceStart;
   
-  if (!currentBoss && timeSinceLastBoss > nextBossTime) {
+  if (gameOfficiallyStarted && !currentBoss && timeSinceLastBoss > nextBossTime) {
     const attackTypes = ['spiral', 'spread', 'circle', 'shield-gen', 'rain', 'small-fast', 'big-spread', 'laser-line', 'buff'];
     let attackType;
     if (bossLevel <= 9) {
@@ -1905,8 +1908,8 @@ function gameLoop(currentTime) {
     }
   }
 
-  // Boss 存在时也生成普通敌机
-  if (enemies.length < MAX_ENEMIES && Math.random() < config.enemySpawnRate * (currentBoss ? 0.5 : 1)) {
+  // Boss 存在时也生成普通敌机（仅在游戏正式开始后）
+  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && Math.random() < config.enemySpawnRate * (currentBoss ? 0.5 : 1)) {
     const enemyLevel = getEnemyLevel();
     const newEnemy = new Enemy(enemyLevel);
     
