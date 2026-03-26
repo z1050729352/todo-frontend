@@ -556,12 +556,12 @@ class Enemy {
     this.height = 35;
     this.level = level;
     
-    // 敌机血量：4阶段才开始增加，7阶段后大幅增加
+    // 敌机血量：4阶段开始翻3倍，7阶段后再翻
     let healthMultiplier = 1;
     if (bossLevel >= 7) {
-      healthMultiplier = 3; // 7阶段后敌机血量3倍
+      healthMultiplier = 4.5; // 7阶段后敌机血量4.5倍
     } else if (bossLevel >= 4) {
-      healthMultiplier = 1.5; // 4阶段后敌机血量1.5倍
+      healthMultiplier = 3; // 4阶段后敌机血量3倍
     }
     this.maxHealth = level * 2 * healthMultiplier;
     this.health = this.maxHealth;
@@ -580,11 +580,11 @@ class Enemy {
       this.defense = Math.min(0.35 + (level - 4) * 0.1, 0.75);
     }
     
-    // 4阶段以后敌机防御再提升，7阶段后大幅提升
+    // 4阶段以后敌机防御增强3倍，7阶段后继续提升
     if (bossLevel >= 7) {
-      this.defense = Math.min(this.defense + 0.15, 0.85);
+      this.defense = Math.min(this.defense * 3 + 0.1, 0.95);
     } else if (bossLevel >= 4) {
-      this.defense = Math.min(this.defense + 0.05, 0.8);
+      this.defense = Math.min(this.defense * 3, 0.9);
     }
     
     // 根据等级设置敌机类型
@@ -765,35 +765,37 @@ class Boss {
       this.moveSpeed = 2;
     }
     
-    // 血量大幅提升，随等级递增，第4阶段才开始上压力
+    // 血量大幅提升，随等级递增，第4阶段开始翻5倍
     let baseHealth = attackType === 'buff' ? 1200 : 400;
     let healthGrowth = level <= 2 ? level * 120 : level === 3 ? 400 : level === 4 ? 600 : level === 5 ? 900 : 1200 + (level - 5) * 250;
     
-    // 4阶段以后血量开始增加，7阶段后大幅增加
+    // 4阶段以后血量翻5倍，7阶段后再增加
     if (level >= 7) {
-      baseHealth *= 3;
-      healthGrowth *= 3;
+      baseHealth *= 7;
+      healthGrowth *= 5;
     } else if (level >= 4) {
-      baseHealth *= 1.5;
-      healthGrowth *= 1.5;
+      baseHealth *= 5;
+      healthGrowth *= 5;
     }
     
     this.maxHealth = baseHealth + healthGrowth;
     this.health = this.maxHealth;
     this.healthBars = level >= 4 ? Math.ceil(this.maxHealth / 2000) : 1; // 4阶段后每2000血一条血条
     
-    // 防御系统：第4阶段才开始上压力
+    // 防御系统：第4阶段开始防御增强3倍
     if (level === 1) {
-      this.defense = 0.15; // 1级15%（降低）
+      this.defense = 0.15; // 1级15%
     } else if (level === 2) {
       this.defense = 0.2; // 2级20%
     } else if (level === 3) {
       this.defense = 0.25; // 3级25%
     } else if (level <= 6) {
-      this.defense = 0.3 + (level - 4) * 0.05; // 4-6级：30%-40%
+      // 4-6级防御增强3倍：90%-95%
+      const baseDefense = 0.3 + (level - 4) * 0.05;
+      this.defense = Math.min(baseDefense * 3, 0.95);
     } else {
-      // 7级以后防御大幅提升，最高90%
-      this.defense = Math.min(0.45 + (level - 7) * 0.08, 0.9);
+      // 7级以后防御继续增强，最高95%
+      this.defense = Math.min(0.6 + (level - 7) * 0.08, 0.95);
     }
     
     this.lastAttackTime = 0;
