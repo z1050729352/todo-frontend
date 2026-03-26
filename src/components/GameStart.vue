@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 
-const emit = defineEmits(['start']);
+const emit = defineEmits(['start', 'back']);
 
 const playerName = ref('');
 const difficulty = ref('medium');
@@ -19,12 +19,17 @@ function handleStart() {
   }
   emit('start', playerName.value.trim(), difficulty.value);
 }
+
+function goBack() {
+  emit('back');
+}
 </script>
 
 <template>
   <div class="game-start">
     <div class="stars"></div>
     <div class="content">
+      <button class="back-btn" @click="goBack">← 返回</button>
       <h1 class="title">✈️ 飞机大战</h1>
       <div class="form">
         <div class="input-group">
@@ -114,6 +119,23 @@ function handleStart() {
   border-radius: 20px;
   border: 2px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.back-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 1rem;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateX(-3px);
 }
 
 .content::-webkit-scrollbar {

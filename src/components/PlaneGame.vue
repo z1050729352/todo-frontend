@@ -25,7 +25,7 @@ const difficultyConfig = {
     bulletSpeed: 8, 
     bossAttackMultiplier: 0.7, 
     bossHealPercent: 30,
-    powerUpRate: 0.0008,
+    powerUpRate: 0.0015, // 提升道具掉落率
     initialFireRate: 250 // 初始射速（毫秒）
   },
   medium: { 
@@ -34,7 +34,7 @@ const difficultyConfig = {
     bulletSpeed: 8, 
     bossAttackMultiplier: 1, 
     bossHealPercent: 20,
-    powerUpRate: 0.0006,
+    powerUpRate: 0.0012, // 提升道具掉落率
     initialFireRate: 200
   },
   hard: { 
@@ -43,7 +43,7 @@ const difficultyConfig = {
     bulletSpeed: 8, 
     bossAttackMultiplier: 1.5, 
     bossHealPercent: 15,
-    powerUpRate: 0.0004,
+    powerUpRate: 0.001, // 提升道具掉落率
     initialFireRate: 180
   }
 };
@@ -270,18 +270,18 @@ function getTotalLevel() {
 
 // 道具类型
 const POWERUP_TYPES = {
-  // 武器类
-  RAPID: { color: '#f44336', symbol: 'F', name: '射速', weight: 5 },
-  EXPLOSIVE: { color: '#ff9800', symbol: 'E', name: '爆炸', weight: 3 },
-  SPREAD: { color: '#2196f3', symbol: 'S', name: '散射', weight: 3 },
+  // 武器类 - 提高权重
+  RAPID: { color: '#f44336', symbol: 'F', name: '射速', weight: 8 },
+  EXPLOSIVE: { color: '#ff9800', symbol: 'E', name: '爆炸', weight: 5 },
+  SPREAD: { color: '#2196f3', symbol: 'S', name: '散射', weight: 5 },
   
-  // 特效型导弹
-  LASER: { color: '#9c27b0', symbol: 'L', name: '激光', weight: 2 },
-  BURST: { color: '#00bcd4', symbol: 'B', name: '爆裂', weight: 2 },
-  PIERCE: { color: '#ffeb3b', symbol: 'P', name: '穿甲', weight: 2 },
+  // 特效型导弹 - 提高权重
+  LASER: { color: '#9c27b0', symbol: 'L', name: '激光', weight: 4 },
+  BURST: { color: '#00bcd4', symbol: 'B', name: '爆裂', weight: 4 },
+  PIERCE: { color: '#ffeb3b', symbol: 'P', name: '穿甲', weight: 4 },
   
   // 防护性
-  HEALTH: { color: '#4caf50', symbol: '+', name: '血包', weight: 1.5 },
+  HEALTH: { color: '#4caf50', symbol: '+', name: '血包', weight: 2 },
   SHIELD: { color: '#607d8b', symbol: 'D', name: '护盾', weight: 1.5 },
   BARRIER: { color: '#795548', symbol: 'X', name: '防护罩', weight: 1 },
   
@@ -382,10 +382,12 @@ class Bullet {
       this.hitRadius = 4;
     }
     
-    // 穿甲属性
+    // 穿甲属性：忽视防御
     this.pierce = pierceLevel > 0;
     this.pierceCount = 0;
     this.maxPierce = Math.min(3 + pierceLevel, 10);
+    // 穿甲等级越高，忽视的防御越多
+    this.defenseIgnore = pierceLevel > 0 ? Math.min(0.3 + pierceLevel * 0.1, 0.9) : 0; // 30%-90%
   }
 
   draw() {
@@ -500,8 +502,20 @@ class Enemy {
     this.width = 35;
     this.height = 35;
     this.level = level;
-    this.maxHealth = level;
-    this.health = level;
+    this.maxHealth = level * 2; // 增加基础血量
+    this.health = this.maxHealth;
+    
+    // 防御系统：等级越高防御越高，前期更低
+    // 1级: 0%, 2级: 5%, 3级: 12%, 4级: 20%, 5级+: 30%+
+    if (level === 1) {
+      this.defense = 0; // 1级无防御
+    } else if (level === 2) {
+      this.defense = 0.05; // 2级5%
+    } else if (level === 3) {
+      this.defense = 0.12; // 3级12%
+    } else {
+      this.defense = Math.min(0.2 + (level - 4) * 0.1, 0.6); // 4级起20%，每级+10%，最高60%
+    }
     
     // 根据等级设置敌机类型
     if (level === 1) {
@@ -682,9 +696,19 @@ class Boss {
     }
     
     // 血量大幅提升，随等级递增
-    const baseHealth = attackType === 'buff' ? 500 : 200;
-    this.maxHealth = baseHealth + level * 80;
+    const baseHealth = attackType === 'buff' ? 800 : 300;
+    this.maxHealth = baseHealth + level * 100;
     this.health = this.maxHealth;
+    
+    // 防御系统：减少受到的伤害百分比，前期更低
+    // 1级: 20%, 2级: 25%, 3级: 30%, 4级+: 35%+
+    if (level === 1) {
+      this.defense = 0.2; // 1级20%
+    } else if (level === 2) {
+      this.defense = 0.25; // 2级25%
+    } else {
+      this.defense = Math.min(0.3 + (level - 3) * 0.05, 0.75); // 3级起30%，每级+5%，最高75%
+    }
     
     this.lastAttackTime = 0;
     // 攻击间隔缩短，更频繁
@@ -1291,6 +1315,12 @@ function getPlaneLevel() {
 
 function gameLoop(currentTime) {
   if (!gameRunning) return;
+  
+  // 立即检查血量，优先级最高
+  if (health.value <= 0) {
+    endGame();
+    return;
+  }
 
   gameTime.value = Math.floor((currentTime - startTime) / 1000);
   
@@ -1463,7 +1493,12 @@ function gameLoop(currentTime) {
           bullet.explode();
         }
         
-        currentBoss.health -= 5;
+        // 计算实际伤害（考虑防御和穿甲）
+        const baseDamage = bullet.damage || 5;
+        const effectiveDefense = Math.max(0, currentBoss.defense - (bullet.defenseIgnore || 0));
+        const actualDamage = baseDamage * (1 - effectiveDefense);
+        currentBoss.health -= actualDamage;
+        
         createExplosion(currentBoss.x, currentBoss.y, '#ffeb3b');
         
         // 检查穿甲弹，决定是否删除子弹
@@ -1514,11 +1549,16 @@ function gameLoop(currentTime) {
       if (!bullet) continue;
       
       if (enemy.checkHit(bullet)) {
-        // 先执行爆炸效果和伤害
+        // 先执行爆炸效果
         if (typeof bullet.explode === 'function') {
           bullet.explode();
         }
-        enemy.health -= bullet.damage;
+        
+        // 计算实际伤害（考虑防御和穿甲）
+        const baseDamage = bullet.damage || 1;
+        const effectiveDefense = Math.max(0, enemy.defense - (bullet.defenseIgnore || 0));
+        const actualDamage = baseDamage * (1 - effectiveDefense);
+        enemy.health -= actualDamage;
         
         // 检查穿甲弹，决定是否删除子弹
         if (typeof bullet.canPierce === 'function' && bullet.canPierce()) {
@@ -1550,6 +1590,7 @@ function gameLoop(currentTime) {
         createExplosion(enemy.x, enemy.y, '#ff4757');
         if (health.value <= 0) {
           endGame();
+          return true; // 保持敌机，但立即停止游戏
         }
       }
       return false;
@@ -1566,6 +1607,10 @@ function gameLoop(currentTime) {
         const penalty = Math.floor(5 * getScoreMultiplier());
         score.value = Math.max(0, score.value - penalty);
         health.value = Math.max(0, health.value - 5); // 扣血
+        if (health.value <= 0) {
+          endGame();
+          return true; // 保持敌机，但立即停止游戏
+        }
       }
       return false;
     }
@@ -1591,6 +1636,7 @@ function gameLoop(currentTime) {
         createExplosion(bullet.x, bullet.y, '#ff0066');
         if (health.value <= 0) {
           endGame();
+          return true; // 保持子弹，但立即停止游戏
         }
       }
       return false;
@@ -1615,9 +1661,11 @@ function gameLoop(currentTime) {
 }
 
 function endGame(victory = false) {
+  if (!gameRunning) return; // 防止重复调用
   gameRunning = false;
   if (animationId) {
     cancelAnimationFrame(animationId);
+    animationId = null;
   }
   const finalScore = Math.floor(score.value * (1 + gameTime.value * 0.01));
   emit('gameOver', finalScore, victory);

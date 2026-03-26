@@ -9,7 +9,7 @@ const props = defineProps({
   isVictory: Boolean
 });
 
-const emit = defineEmits(['restart']);
+const emit = defineEmits(['restart', 'backToHub']);
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:12580/api'
@@ -92,6 +92,10 @@ function handleRestart() {
   emit('restart');
 }
 
+function handleBackToHub() {
+  emit('backToHub');
+}
+
 function getVictoryMessage() {
   const messages = [
     '卧槽！20分钟不眨眼？你是赛博朋克吗？',
@@ -171,9 +175,14 @@ onMounted(async () => {
         </div>
       </div>
 
-      <button class="restart-btn" @click="handleRestart">
-        再玩一次
-      </button>
+      <div class="button-group">
+        <button class="restart-btn" @click="handleRestart">
+          再玩一次
+        </button>
+        <button class="hub-btn" @click="handleBackToHub">
+          返回游戏中心
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -402,17 +411,26 @@ onMounted(async () => {
   padding: 2rem;
 }
 
-.restart-btn {
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.restart-btn, .hub-btn {
   width: 100%;
   padding: 1rem;
   border: none;
   border-radius: 10px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
   font-size: 1.1rem;
   font-weight: bold;
   cursor: pointer;
   transition: all 0.3s;
+}
+
+.restart-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
 }
 
@@ -421,7 +439,17 @@ onMounted(async () => {
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
 }
 
-.restart-btn:active {
+.hub-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+.hub-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.restart-btn:active, .hub-btn:active {
   transform: translateY(0);
 }
 
