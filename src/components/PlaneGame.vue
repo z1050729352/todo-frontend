@@ -1465,8 +1465,6 @@ function gameLoop(currentTime) {
   if (slowEffect.active && currentTime > slowEffect.endTime) {
     slowEffect.active = false;
   }
-    phantomEffect.actions = [];
-  }
 
   // 性能优化：限制子弹数量
   if (bullets.length > MAX_BULLETS) {
