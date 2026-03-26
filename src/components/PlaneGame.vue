@@ -1325,6 +1325,9 @@ function restartGame() {
   victoryEffect.active = false;
   gameOfficiallyStarted = false;
   
+  // 重置开始时间
+  startTime = performance.now();
+  
   // 清空所有数组
   bullets = [];
   enemies = [];
