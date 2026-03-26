@@ -503,47 +503,97 @@ class Enemy {
     this.maxHealth = level;
     this.health = level;
     
-    // 高级敌机斜着飞
-    if (level >= 3) {
-      this.speed = (config.enemySpeed - level * 0.3) + Math.random() * 0.5;
-      this.horizontalSpeed = (Math.random() - 0.5) * 2;
-      this.pattern = Math.random() < 0.5 ? 'zigzag' : 'sine';
-    } else {
-      this.speed = (config.enemySpeed - level * 0.3) + Math.random() * 1;
+    // 根据等级设置敌机类型
+    if (level === 1) {
+      this.type = 'normal';
+      this.speed = config.enemySpeed + Math.random() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
+      this.canShoot = false;
+      this.shootPattern = 'single';
+    } else if (level === 2) {
+      this.type = 'fast';
+      this.speed = config.enemySpeed * 1.3 + Math.random() * 1;
+      this.horizontalSpeed = 0;
+      this.pattern = 'straight';
+      this.canShoot = false;
+      this.shootPattern = 'single';
+    } else if (level === 3) {
+      this.type = 'shooter';
+      this.speed = config.enemySpeed * 0.8;
+      this.horizontalSpeed = (Math.random() - 0.5) * 1.5;
+      this.pattern = 'zigzag';
+      this.canShoot = true;
+      this.shootPattern = 'single';
+    } else if (level === 4) {
+      this.type = 'heavy';
+      this.speed = config.enemySpeed * 0.6;
+      this.horizontalSpeed = 0;
+      this.pattern = 'straight';
+      this.canShoot = true;
+      this.shootPattern = 'double';
+    } else {
+      this.type = 'elite';
+      this.speed = config.enemySpeed * 0.7;
+      this.horizontalSpeed = (Math.random() - 0.5) * 2;
+      this.pattern = Math.random() < 0.5 ? 'zigzag' : 'sine';
+      this.canShoot = true;
+      this.shootPattern = Math.random() < 0.5 ? 'triple' : 'spread';
     }
     
     this.speed = Math.max(1.5, this.speed);
     this.color = this.getColorByLevel(level);
-    this.canShoot = level >= 3;
     this.lastShootTime = 0;
     this.startY = this.y;
   }
   
   getColorByLevel(level) {
-    const colors = ['#ff4757', '#ff6b81', '#ee5a6f', '#e84393', '#fd79a8'];
+    const colors = ['#ff4757', '#ff6b81', '#ee5a6f', '#e84393', '#fd79a8', '#c44569'];
     return colors[Math.min(level - 1, colors.length - 1)];
   }
 
   draw() {
-    ctx.fillStyle = this.color;
-    ctx.beginPath();
-    ctx.moveTo(this.x, this.y + 15);
-    ctx.lineTo(this.x - 12, this.y - 10);
-    ctx.lineTo(this.x, this.y - 5);
-    ctx.lineTo(this.x + 12, this.y - 10);
-    ctx.closePath();
-    ctx.fill();
-    
-    ctx.fillStyle = this.color + 'cc';
-    ctx.fillRect(this.x - 15, this.y, 30, 6);
+    // 根据类型绘制不同形状
+    if (this.type === 'heavy') {
+      // 重型：方形
+      ctx.fillStyle = this.color;
+      ctx.fillRect(this.x - 15, this.y - 15, 30, 30);
+      ctx.strokeStyle = this.color + 'cc';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(this.x - 15, this.y - 15, 30, 30);
+    } else if (this.type === 'elite') {
+      // 精英：六边形
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+        const px = this.x + Math.cos(angle) * 15;
+        const py = this.y + Math.sin(angle) * 15;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // 普通/快速/射手：三角形
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y + 15);
+      ctx.lineTo(this.x - 12, this.y - 10);
+      ctx.lineTo(this.x, this.y - 5);
+      ctx.lineTo(this.x + 12, this.y - 10);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.fillStyle = this.color + 'cc';
+      ctx.fillRect(this.x - 15, this.y, 30, 6);
+    }
     
     if (this.level > 1) {
       const barWidth = 30;
       const barHeight = 3;
       const barX = this.x - barWidth / 2;
-      const barY = this.y - 15;
+      const barY = this.y - 20;
       
       ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
       ctx.fillRect(barX, barY, barWidth, barHeight);
@@ -579,8 +629,26 @@ class Enemy {
   }
   
   shoot() {
-    if (bossBullets.length < MAX_BOSS_BULLETS) {
-      bossBullets.push(new BossBullet(this.x, this.y + 15, Math.PI / 2, 5, 3));
+    if (bossBullets.length >= MAX_BOSS_BULLETS) return;
+    
+    if (this.shootPattern === 'single') {
+      // 单发
+      bossBullets.push(new BossBullet(this.x, this.y + 15, Math.PI / 2, 5, 4));
+    } else if (this.shootPattern === 'double') {
+      // 双发
+      bossBullets.push(new BossBullet(this.x - 10, this.y + 15, Math.PI / 2, 5, 4));
+      bossBullets.push(new BossBullet(this.x + 10, this.y + 15, Math.PI / 2, 5, 4));
+    } else if (this.shootPattern === 'triple') {
+      // 三发
+      bossBullets.push(new BossBullet(this.x - 12, this.y + 15, Math.PI / 2, 5, 4));
+      bossBullets.push(new BossBullet(this.x, this.y + 15, Math.PI / 2, 5, 4));
+      bossBullets.push(new BossBullet(this.x + 12, this.y + 15, Math.PI / 2, 5, 4));
+    } else if (this.shootPattern === 'spread') {
+      // 扇形
+      for (let i = -1; i <= 1; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 12);
+        bossBullets.push(new BossBullet(this.x, this.y + 15, angle, 5, 4));
+      }
     }
   }
   
@@ -613,13 +681,14 @@ class Boss {
       this.moveSpeed = 2;
     }
     
-    // 血量随等级递增
-    const baseHealth = attackType === 'buff' ? 150 : 50;
-    this.maxHealth = baseHealth + level * 20;
+    // 血量大幅提升，随等级递增
+    const baseHealth = attackType === 'buff' ? 500 : 200;
+    this.maxHealth = baseHealth + level * 80;
     this.health = this.maxHealth;
     
     this.lastAttackTime = 0;
-    this.attackInterval = 1000;
+    // 攻击间隔缩短，更频繁
+    this.attackInterval = attackType === 'small-fast' ? 600 : 800;
     this.moveDirection = 1;
     this.damage = Math.floor(10 + level * 5) * config.bossAttackMultiplier;
     this.color = this.getColorByType(attackType);
@@ -700,57 +769,62 @@ class Boss {
     if (sounds.bossSkill) sounds.bossSkill();
     
     if (this.attackType === 'spiral') {
-      // Boss 1: 螺旋
-      for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2 + Date.now() * 0.005;
+      // Boss 1: 螺旋 - 增加到12发
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2 + Date.now() * 0.005;
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
     } else if (this.attackType === 'spread') {
-      // Boss 2: 扇形
-      for (let i = -3; i <= 3; i++) {
-        const angle = Math.PI / 2 + (i * Math.PI / 12);
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
-      }
-    } else if (this.attackType === 'circle') {
-      // Boss 3: 圆形
-      for (let i = 0; i < 12; i++) {
-        const angle = (i / 12) * Math.PI * 2;
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
-      }
-    } else if (this.attackType === 'left-right') {
-      // Boss 4: 从左往右
-      for (let i = 0; i < 5; i++) {
-        const angle = -Math.PI / 6 + (i * Math.PI / 12);
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
-      }
-    } else if (this.attackType === 'right-left') {
-      // Boss 5: 从右往左
-      for (let i = 0; i < 5; i++) {
-        const angle = Math.PI + Math.PI / 6 - (i * Math.PI / 12);
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
-      }
-    } else if (this.attackType === 'small-fast') {
-      // Boss 6: 小而快，快速射击
-      for (let i = 0; i < 3; i++) {
-        const angle = Math.PI / 2 + (i - 1) * Math.PI / 8;
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 6));
-      }
-    } else if (this.attackType === 'big-spread') {
-      // Boss 7: 超大弹幕
-      for (let i = -5; i <= 5; i++) {
+      // Boss 2: 扇形 - 增加到9发
+      for (let i = -4; i <= 4; i++) {
         const angle = Math.PI / 2 + (i * Math.PI / 10);
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
+    } else if (this.attackType === 'circle') {
+      // Boss 3: 圆形 - 增加到16发
+      for (let i = 0; i < 16; i++) {
+        const angle = (i / 16) * Math.PI * 2;
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
+      }
+    } else if (this.attackType === 'left-right') {
+      // Boss 4: 从左往右 - 增加到7发
+      for (let i = 0; i < 7; i++) {
+        const angle = -Math.PI / 4 + (i * Math.PI / 12);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
+      }
+    } else if (this.attackType === 'right-left') {
+      // Boss 5: 从右往左 - 增加到7发
+      for (let i = 0; i < 7; i++) {
+        const angle = Math.PI + Math.PI / 4 - (i * Math.PI / 12);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
+      }
+    } else if (this.attackType === 'small-fast') {
+      // Boss 6: 小而快，快速连射
+      for (let i = 0; i < 5; i++) {
+        const angle = Math.PI / 2 + (i - 2) * Math.PI / 12;
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 7));
+      }
+    } else if (this.attackType === 'big-spread') {
+      // Boss 7: 超大弹幕 - 增加到13发
+      for (let i = -6; i <= 6; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 8);
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
+      }
     } else if (this.attackType === 'laser-line') {
-      // Boss 8: 激光线
-      for (let i = -1; i <= 1; i++) {
-        bossBullets.push(new BossBullet(this.x + i * 30, this.y + 20, Math.PI / 2, this.damage, 10, true));
+      // Boss 8: 激光线 - 增加到5条
+      for (let i = -2; i <= 2; i++) {
+        bossBullets.push(new BossBullet(this.x + i * 25, this.y + 20, Math.PI / 2, this.damage, 12, true));
       }
     } else if (this.attackType === 'buff') {
-      // Boss 9: buff boss，普通攻击
-      for (let i = -2; i <= 2; i++) {
-        const angle = Math.PI / 2 + (i * Math.PI / 16);
+      // Boss 9: buff boss，双重攻击
+      for (let i = -3; i <= 3; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 14);
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
+      }
+      // 额外圆形弹幕
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 3));
       }
     }
   }
