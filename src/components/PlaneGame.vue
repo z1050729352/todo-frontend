@@ -1173,7 +1173,12 @@ class SlowZone {
 
 function applyPowerUp(type) {
   if (type === 'HEALTH') {
-    health.value = Math.min(100, health.value + 30);
+    const healAmount = 30;
+    const oldHealth = health.value;
+    health.value = Math.min(100, health.value + healAmount);
+    if (health.value > oldHealth) {
+      triggerHealFlash();
+    }
   } else if (type === 'SPREAD') {
     // 属性类：散弹
     playerWeapon.value.spreadLevel = Math.min(playerWeapon.value.maxWeaponLevel, playerWeapon.value.spreadLevel + 1);
@@ -1299,8 +1304,102 @@ let touchX = 0;
 let touchY = 0;
 let isTouching = false;
 
+// 暂停功能
+let isPaused = false;
+
+function togglePause() {
+  isPaused = !isPaused;
+}
+
+function restartGame() {
+  // 重置所有游戏状态
+  score.value = 0;
+  health.value = 100;
+  gameTime.value = 0;
+  bossLevel = 1;
+  currentBoss = null;
+  lastBossDefeatedTime = 0;
+  nextBossTime = 30000;
+  gameCompleted = false;
+  notifiedEnemyTypes.clear();
+  victoryEffect.active = false;
+  gameOfficiallyStarted = false;
+  
+  // 清空所有数组
+  bullets = [];
+  enemies = [];
+  particles = [];
+  bossBullets = [];
+  powerUps = [];
+  slowZones = [];
+  
+  // 重置防护罩和效果
+  barrier.active = false;
+  barrier.health = 0;
+  slowEffect.active = false;
+  playerSlowEffect.active = false;
+  
+  // 重置玩家位置
+  if (player) {
+    player.x = canvas.value.width / 2;
+    player.y = canvas.value.height - 100;
+    player.shield = 0;
+  }
+  
+  // 重置武器
+  playerWeapon.value = {
+    spreadLevel: 0,
+    pierceLevel: 0,
+    fireRate: 1,
+    bulletType: 'normal',
+    bulletLevel: 0,
+    maxWeaponLevel: 10,
+    maxFireRate: 5
+  };
+  
+  // 触发开始特效
+  gameStartEffect.active = true;
+  gameStartEffect.startTime = performance.now();
+  gameStartEffect.phase = 1;
+  
+  isPaused = false;
+}
+
+function handleCanvasClick(e) {
+  if (!isPaused || !canvas.value) return;
+  
+  const rect = canvas.value.getBoundingClientRect();
+  const clickX = e.clientX - rect.left;
+  const clickY = e.clientY - rect.top;
+  
+  const btnY = canvas.value.height / 2 + 20;
+  const btnWidth = 180;
+  const btnHeight = 50;
+  const btnX = canvas.value.width / 2 - btnWidth / 2;
+  
+  // 检查继续游戏按钮点击
+  if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btnY && clickY <= btnY + btnHeight) {
+    isPaused = false;
+    return;
+  }
+  
+  // 检查重新开始按钮点击
+  const btn2Y = btnY + 70;
+  if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btn2Y && clickY <= btn2Y + btnHeight) {
+    restartGame();
+  }
+}
+
 // 掉血特效
 let damageFlash = { active: false, opacity: 0 };
+
+// 回血特效
+let healFlash = { active: false, opacity: 0 };
+
+function triggerHealFlash() {
+  healFlash.active = true;
+  healFlash.opacity = 0.5;
+}
 
 function triggerDamageFlash() {
   damageFlash.active = true;
@@ -1725,6 +1824,14 @@ function getPlaneLevel() {
 function gameLoop(currentTime) {
   if (!gameRunning) return;
   
+  // 如果暂停，显示暂停界面但停止游戏逻辑
+  if (isPaused) {
+    // 渲染暂停界面
+    renderPauseScreen();
+    animationId = requestAnimationFrame(gameLoop);
+    return;
+  }
+  
   // 立即检查血量，优先级最高
   if (health.value <= 0) {
     endGame();
@@ -1754,6 +1861,57 @@ function gameLoop(currentTime) {
       damageFlash.active = false;
     }
   }
+  
+  // 回血绿色闪光特效
+  if (healFlash.active) {
+    ctx.fillStyle = `rgba(0, 255, 100, ${healFlash.opacity})`;
+    ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+    healFlash.opacity -= 0.02;
+    if (healFlash.opacity <= 0) {
+      healFlash.active = false;
+    }
+  }
+
+function renderPauseScreen() {
+  // 半透明黑色遮罩
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+  
+  // 暂停标题
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 48px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('游戏暂停', canvas.value.width / 2, canvas.value.height / 2 - 80);
+  
+  // 分隔线
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(canvas.value.width / 2 - 100, canvas.value.height / 2 - 40);
+  ctx.lineTo(canvas.value.width / 2 + 100, canvas.value.height / 2 - 40);
+  ctx.stroke();
+  
+  // 继续游戏按钮区域
+  const btnY = canvas.value.height / 2 + 20;
+  const btnWidth = 180;
+  const btnHeight = 50;
+  
+  // 继续游戏按钮
+  ctx.fillStyle = '#4caf50';
+  ctx.fillRect(canvas.value.width / 2 - btnWidth / 2, btnY, btnWidth, btnHeight);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 24px Arial';
+  ctx.fillText('继续游戏', canvas.value.width / 2, btnY + 35);
+  
+  // 重新开始按钮区域
+  const btn2Y = btnY + 70;
+  
+  // 重新开始按钮
+  ctx.fillStyle = '#ff9800';
+  ctx.fillRect(canvas.value.width / 2 - btnWidth / 2, btn2Y, btnWidth, btnHeight);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('重新开始', canvas.value.width / 2, btn2Y + 35);
+}
 
   // 滚动星空背景
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
@@ -1934,7 +2092,11 @@ function gameLoop(currentTime) {
           
           // 恢复血量
           const healAmount = config.bossHealPercent;
+          const oldHealth = health.value;
           health.value = Math.min(100, health.value + healAmount);
+          if (health.value > oldHealth) {
+            triggerHealFlash();
+          }
           
           // 如果是buff boss，恢复敌机生成速度
           if (currentBoss.attackType === 'buff') {
@@ -2201,6 +2363,7 @@ onUnmounted(() => {
 
 <template>
   <div class="game-container">
+    <button class="pause-btn" @click="togglePause">⏸</button>
     <div class="game-ui">
       <div class="ui-item">
         <span class="value">{{ playerName }}</span>
@@ -2233,7 +2396,7 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
-    <canvas ref="canvas"></canvas>
+    <canvas ref="canvas" @click="handleCanvasClick"></canvas>
   </div>
 </template>
 
@@ -2246,6 +2409,35 @@ onUnmounted(() => {
   justify-content: center;
   background: #0a0e27;
   overflow: hidden;
+}
+
+.pause-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 100;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.pause-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+  border-color: rgba(255, 255, 255, 0.6);
+  transform: scale(1.1);
+}
+
+.pause-btn:active {
+  transform: scale(0.95);
 }
 
 canvas {

@@ -129,19 +129,22 @@ onMounted(() => {
 <style scoped>
 .leaderboard-view {
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 20px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
+  box-sizing: border-box;
 }
 
 .leaderboard-container {
   width: 100%;
   max-width: 600px;
   animation: fadeIn 0.5s ease-out;
+  padding-bottom: 40px;
 }
 
 .header {
@@ -262,6 +265,27 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
+  padding-right: 5px;
+}
+
+.leaderboard-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.leaderboard-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.leaderboard-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.leaderboard-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .leaderboard-item {
