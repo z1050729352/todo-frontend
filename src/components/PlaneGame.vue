@@ -1308,9 +1308,19 @@ let isTouching = false;
 
 // 暂停功能
 let isPaused = false;
+let pausedAt = 0; // 记录暂停时的时间
 
 function togglePause() {
-  isPaused = !isPaused;
+  if (!isPaused) {
+    // 暂停游戏
+    isPaused = true;
+    pausedAt = performance.now();
+  } else {
+    // 继续游戏，调整startTime补偿暂停流逝的时间
+    isPaused = false;
+    const pauseDuration = performance.now() - pausedAt;
+    startTime += pauseDuration;
+  }
 }
 
 function restartGame() {
@@ -1406,6 +1416,9 @@ function checkPauseButtonClick(clickX, clickY) {
   
   // 检查继续游戏按钮点击
   if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btnY && clickY <= btnY + btnHeight) {
+    // 继续游戏，调整startTime补偿暂停流逝的时间
+    const pauseDuration = performance.now() - pausedAt;
+    startTime += pauseDuration;
     isPaused = false;
     return;
   }
