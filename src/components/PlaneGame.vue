@@ -54,7 +54,8 @@ let gameCompleted = false;
 const config = difficultyConfig[props.difficulty];
 
 let currentBoss = null;
-let nextBossTime = 30000;
+let nextBossTime = 30000; // 第一个Boss的出现时间
+let lastBossDefeatedTime = 0; // 上一个Boss被击败的时间
 let bossLevel = 1;
 
 // 音效系统
@@ -230,12 +231,13 @@ let enemies = [];
 let particles = [];
 let bossBullets = [];
 let powerUps = [];
-let blackHoles = [];
+let slowZones = []; // 改名为slowZones
 
 // 环境效果
 let slowEffect = { active: false, endTime: 0 };
 let phantomEffect = { active: false, endTime: 0, actions: [] };
 let barrier = { active: false, health: 0, maxHealth: 4 };
+let playerSlowEffect = { active: false, endTime: 0, speedMultiplier: 1 }; // 玩家减速效果
 
 // 性能优化：限制对象数量
 const MAX_BULLETS = 100;
@@ -271,26 +273,26 @@ function getTotalLevel() {
 // 道具类型
 const POWERUP_TYPES = {
   // 武器类 - 提高权重
-  RAPID: { color: '#f44336', symbol: 'F', name: '射速', weight: 8 },
-  EXPLOSIVE: { color: '#ff9800', symbol: 'E', name: '爆炸', weight: 5 },
-  SPREAD: { color: '#2196f3', symbol: 'S', name: '散射', weight: 5 },
+  RAPID: { color: '#f44336', symbol: '速', name: '射速', weight: 8 },
+  EXPLOSIVE: { color: '#ff9800', symbol: '爆', name: '爆炸', weight: 5 },
+  SPREAD: { color: '#2196f3', symbol: '散', name: '散射', weight: 5 },
   
   // 特效型导弹 - 提高权重
-  LASER: { color: '#9c27b0', symbol: 'L', name: '激光', weight: 4 },
-  BURST: { color: '#00bcd4', symbol: 'B', name: '爆裂', weight: 4 },
-  PIERCE: { color: '#ffeb3b', symbol: 'P', name: '穿甲', weight: 4 },
+  LASER: { color: '#9c27b0', symbol: '光', name: '激光', weight: 4 },
+  BURST: { color: '#00bcd4', symbol: '裂', name: '爆裂', weight: 4 },
+  PIERCE: { color: '#ffeb3b', symbol: '穿', name: '穿甲', weight: 4 },
   
   // 防护性
-  HEALTH: { color: '#4caf50', symbol: '+', name: '血包', weight: 2 },
-  SHIELD: { color: '#607d8b', symbol: 'D', name: '护盾', weight: 1.5 },
-  BARRIER: { color: '#795548', symbol: 'X', name: '防护罩', weight: 1 },
+  HEALTH: { color: '#4caf50', symbol: '血', name: '血包', weight: 2 },
+  SHIELD: { color: '#607d8b', symbol: '盾', name: '护盾', weight: 1.5 },
+  BARRIER: { color: '#795548', symbol: '墙', name: '防护罩', weight: 1 },
   
   // 环境型
-  SLOW: { color: '#9e9e9e', symbol: 'T', name: '延缓', weight: 0.5 },
-  PHANTOM: { color: '#673ab7', symbol: 'G', name: '幻影', weight: 0.5 },
+  SLOW: { color: '#9e9e9e', symbol: '缓', name: '延缓', weight: 0.5 },
+  PHANTOM: { color: '#673ab7', symbol: '影', name: '幻影', weight: 0.5 },
   
   // 全图爆炸
-  LIGHTNING: { color: '#ffeb3b', symbol: '⚡', name: '闪电', weight: 0.1 }
+  LIGHTNING: { color: '#ffeb3b', symbol: '毁', name: '闪电', weight: 0.1 }
 };
 
 class Player {
@@ -339,8 +341,21 @@ class Player {
   }
 
   moveTo(targetX, targetY) {
-    this.x = targetX;
-    this.y = targetY;
+    // 应用减速效果
+    const speedMult = playerSlowEffect.active ? playerSlowEffect.speedMultiplier : 1;
+    
+    if (speedMult < 1) {
+      // 减速时，移动更慢（插值）
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      this.x += dx * speedMult;
+      this.y += dy * speedMult;
+    } else {
+      // 正常速度
+      this.x = targetX;
+      this.y = targetY;
+    }
+    
     this.x = Math.max(20, Math.min(canvas.value.width - 20, this.x));
     this.y = Math.max(30, Math.min(canvas.value.height - 30, this.y));
   }
@@ -811,15 +826,15 @@ class Boss {
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
     } else if (this.attackType === 'left-right') {
-      // Boss 4: 从左往右 - 增加到7发
+      // Boss 4: 左斜射击 - 向左下方斜射
       for (let i = 0; i < 7; i++) {
-        const angle = -Math.PI / 4 + (i * Math.PI / 12);
+        const angle = Math.PI / 2 + Math.PI / 6 + (i * Math.PI / 24); // 向左下斜射
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
       }
     } else if (this.attackType === 'right-left') {
-      // Boss 5: 从右往左 - 增加到7发
+      // Boss 5: 右斜射击 - 向右下方斜射
       for (let i = 0; i < 7; i++) {
-        const angle = Math.PI + Math.PI / 4 - (i * Math.PI / 12);
+        const angle = Math.PI / 2 - Math.PI / 6 - (i * Math.PI / 24); // 向右下斜射
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
       }
     } else if (this.attackType === 'small-fast') {
@@ -954,7 +969,7 @@ function getEnemyLevel() {
   return 5;
 }
 
-class BlackHole {
+class SlowZone {
   constructor() {
     this.x = Math.random() * (canvas.value.width - 100) + 50;
     this.y = -50;
@@ -966,31 +981,31 @@ class BlackHole {
   draw() {
     this.rotation += 0.05;
     
-    // 外圈旋转效果
+    // 外圈旋转效果 - 蓝色减速区域
     for (let i = 0; i < 3; i++) {
-      ctx.strokeStyle = `rgba(138, 43, 226, ${0.3 - i * 0.1})`;
+      ctx.strokeStyle = `rgba(33, 150, 243, ${0.3 - i * 0.1})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.radius + i * 10, this.rotation + i, this.rotation + Math.PI + i);
       ctx.stroke();
     }
     
-    // 黑洞中心
+    // 减速区域中心
     const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
-    gradient.addColorStop(0, '#000');
-    gradient.addColorStop(0.5, '#4a148c');
-    gradient.addColorStop(1, 'rgba(138, 43, 226, 0)');
+    gradient.addColorStop(0, '#1976d2');
+    gradient.addColorStop(0.5, '#2196f3');
+    gradient.addColorStop(1, 'rgba(33, 150, 243, 0)');
     
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
     ctx.fill();
     
-    // 警告文字
+    // 减速符号
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px Arial';
+    ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('!', this.x, this.y + 4);
+    ctx.fillText('慢', this.x, this.y + 6);
   }
 
   update() {
@@ -1002,13 +1017,15 @@ class BlackHole {
     return dist < this.radius;
   }
   
-  teleportPlayer(player) {
-    player.x = Math.random() * (canvas.value.width - 40) + 20;
-    player.y = Math.random() * (canvas.value.height - 100) + 50;
+  applySlowEffect(player) {
+    // 触发减速效果：3秒内飞机移动速度减半
+    playerSlowEffect.active = true;
+    playerSlowEffect.endTime = performance.now() + 3000;
+    playerSlowEffect.speedMultiplier = 0.5;
     
-    // 传送特效
-    for (let i = 0; i < 20; i++) {
-      particles.push(new Particle(player.x, player.y, '#8a2be2'));
+    // 减速特效
+    for (let i = 0; i < 15; i++) {
+      particles.push(new Particle(player.x, player.y, '#2196f3'));
     }
   }
 }
@@ -1326,40 +1343,35 @@ function getWeaponDisplay() {
     const w = playerWeapon.value;
     const parts = [];
     
-    // 弹道类型
+    // 弹道类型 - 简称
     if (w.bulletType === 'laser' && w.bulletLevel > 0) {
-      parts.push(`${w.bulletLevel}级激光`);
+      parts.push(`光${w.bulletLevel}`);
     } else if (w.bulletType === 'burst' && w.bulletLevel > 0) {
-      parts.push(`${w.bulletLevel}级爆裂`);
+      parts.push(`裂${w.bulletLevel}`);
     } else if (w.bulletType === 'explosive' && w.bulletLevel > 0) {
-      parts.push(`${w.bulletLevel}级爆炸`);
+      parts.push(`爆${w.bulletLevel}`);
     }
     
-    // 属性类型
-    const attrs = [];
-    if (w.spreadLevel > 0) attrs.push(`散弹${w.spreadLevel}`);
-    if (w.pierceLevel > 0) attrs.push(`穿甲${w.pierceLevel}`);
-    
-    if (attrs.length > 0) {
-      parts.push(`[${attrs.join('+')}]`);
-    }
+    // 属性类型 - 简称
+    if (w.spreadLevel > 0) parts.push(`散${w.spreadLevel}`);
+    if (w.pierceLevel > 0) parts.push(`穿${w.pierceLevel}`);
     
     if (parts.length === 0) {
-      return '普通武器';
+      return '普通';
     }
     
     return parts.join(' ');
   } catch (e) {
-    return '普通武器';
+    return '普通';
   }
 }
 
 function getFireRateDisplay() {
   try {
     const rate = playerWeapon.value?.fireRate || 1;
-    return `攻速${rate}`;
+    return `速${rate}`;
   } catch (e) {
-    return '攻速1';
+    return '速1';
   }
 }
 
@@ -1509,24 +1521,34 @@ function gameLoop(currentTime) {
     return powerUp.y < canvas.value.height + 30;
   });
 
-  // 生成黑洞（每60-90秒一次）
-  if (Math.random() < 0.0002 && blackHoles.length < 2) {
-    blackHoles.push(new BlackHole());
+  // 生成减速区域（偶尔出现）
+  if (Math.random() < 0.0003 && slowZones.length < 2) {
+    slowZones.push(new SlowZone());
   }
 
-  blackHoles = blackHoles.filter(hole => {
-    hole.update();
-    hole.draw();
+  slowZones = slowZones.filter(zone => {
+    zone.update();
+    zone.draw();
     
-    if (player && hole.checkCollision(player)) {
-      hole.teleportPlayer(player);
+    if (player && zone.checkCollision(player)) {
+      zone.applySlowEffect(player);
       return false;
     }
     
-    return hole.y < canvas.value.height + 50;
+    return zone.y < canvas.value.height + 50;
   });
+  
+  // 更新玩家减速效果
+  if (playerSlowEffect.active && currentTime > playerSlowEffect.endTime) {
+    playerSlowEffect.active = false;
+    playerSlowEffect.speedMultiplier = 1;
+  }
 
-  if (!currentBoss && currentTime - startTime > nextBossTime) {
+  // Boss生成逻辑：第一个Boss按游戏开始时间，后续Boss按击败时间
+  const timeSinceStart = currentTime - startTime;
+  const timeSinceLastBoss = lastBossDefeatedTime > 0 ? currentTime - lastBossDefeatedTime : timeSinceStart;
+  
+  if (!currentBoss && timeSinceLastBoss > nextBossTime) {
     const attackTypes = ['spiral', 'spread', 'circle', 'left-right', 'right-left', 'small-fast', 'big-spread', 'laser-line', 'buff'];
     let attackType;
     if (bossLevel <= 9) {
@@ -1543,7 +1565,8 @@ function gameLoop(currentTime) {
     }
     
     bossLevel++;
-    nextBossTime += 35000 + Math.random() * 10000;
+    // 重置下一个Boss的间隔时间（35-45秒）
+    nextBossTime = 35000 + Math.random() * 10000;
   }
 
   if (currentBoss) {
@@ -1596,6 +1619,10 @@ function gameLoop(currentTime) {
           for (let j = 0; j < 30; j++) {
             particles.push(new Particle(currentBoss.x, currentBoss.y, '#ffeb3b'));
           }
+          
+          // 记录Boss被击败的时间，作为下一个Boss计时的起点
+          lastBossDefeatedTime = currentTime;
+          
           currentBoss = null;
           break; // 立即退出循环，不再处理其他子弹
         }
@@ -1904,12 +1931,13 @@ canvas {
 
 .value.weapon {
   color: #2196f3;
-  max-width: 160px;
-  font-size: 0.7rem;
+  max-width: 100px; /* 缩小宽度，简称更短 */
+  font-size: 0.75rem;
 }
 
 .value.rapid {
   color: #f44336;
+  font-size: 0.75rem;
 }
 
 .value.shield {
@@ -1950,11 +1978,15 @@ canvas {
   .game-ui {
     gap: 6px;
     padding: 6px 8px;
-    grid-template-columns: repeat(auto-fit, minmax(50px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(45px, 1fr));
   }
   
   .ui-item {
-    min-width: 50px;
+    min-width: 45px;
+  }
+  
+  .weapon-item {
+    min-width: 60px; /* 武器项稍微宽一点 */
   }
   
   .label {
@@ -1962,8 +1994,17 @@ canvas {
   }
   
   .value {
-    font-size: 0.75rem;
-    max-width: 60px;
+    font-size: 0.7rem;
+    max-width: 55px;
+  }
+  
+  .value.weapon {
+    max-width: 70px; /* 武器简称更紧凑 */
+    font-size: 0.7rem;
+  }
+  
+  .value.rapid {
+    font-size: 0.7rem;
   }
   
   .health-bar {
