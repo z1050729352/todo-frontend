@@ -1369,8 +1369,11 @@ function handleCanvasClick(e) {
   if (!isPaused || !canvas.value) return;
   
   const rect = canvas.value.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const clickY = e.clientY - rect.top;
+  const scaleX = canvas.value.width / rect.width;
+  const scaleY = canvas.value.height / rect.height;
+  
+  const clickX = (e.clientX - rect.left) * scaleX;
+  const clickY = (e.clientY - rect.top) * scaleY;
   
   const btnY = canvas.value.height / 2 + 20;
   const btnWidth = 180;
@@ -1881,6 +1884,7 @@ function renderPauseScreen() {
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 48px Arial';
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillText('游戏暂停', canvas.value.width / 2, canvas.value.height / 2 - 80);
   
   // 分隔线
@@ -1901,7 +1905,9 @@ function renderPauseScreen() {
   ctx.fillRect(canvas.value.width / 2 - btnWidth / 2, btnY, btnWidth, btnHeight);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 24px Arial';
-  ctx.fillText('继续游戏', canvas.value.width / 2, btnY + 35);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('继续游戏', canvas.value.width / 2, btnY + btnHeight / 2);
   
   // 重新开始按钮区域
   const btn2Y = btnY + 70;
@@ -1910,7 +1916,7 @@ function renderPauseScreen() {
   ctx.fillStyle = '#ff9800';
   ctx.fillRect(canvas.value.width / 2 - btnWidth / 2, btn2Y, btnWidth, btnHeight);
   ctx.fillStyle = '#fff';
-  ctx.fillText('重新开始', canvas.value.width / 2, btn2Y + 35);
+  ctx.fillText('重新开始', canvas.value.width / 2, btn2Y + btnHeight / 2);
 }
 
   // 滚动星空背景
