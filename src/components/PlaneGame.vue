@@ -43,7 +43,7 @@ const difficultyConfig = {
     bulletSpeed: 8, 
     bossAttackMultiplier: 1.5, 
     bossHealPercent: 15,
-    powerUpRate: 0.001, // 提升道具掉落率
+    powerUpRate: 0.0015, // 困难模式也提高道具掉落率，和简单模式一样
     initialFireRate: 180
   }
 };
@@ -1157,45 +1157,103 @@ let touchX = 0;
 let touchY = 0;
 let isTouching = false;
 
+// 掉血特效
+let damageFlash = { active: false, opacity: 0 };
+
+function triggerDamageFlash() {
+  damageFlash.active = true;
+  damageFlash.opacity = 0.5;
+  
+  // 屏幕震动效果（如果支持）
+  if (navigator.vibrate) {
+    navigator.vibrate(100);
+  }
+  
+  // 播放受伤音效
+  try {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    oscillator.frequency.value = 150;
+    oscillator.type = 'sawtooth';
+    gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.2);
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.2);
+  } catch (e) {}
+}
+
 function handleTouchStart(e) {
-  e.preventDefault();
-  isTouching = true;
-  const touch = e.touches[0];
-  const rect = canvas.value.getBoundingClientRect();
-  touchX = touch.clientX - rect.left;
-  touchY = touch.clientY - rect.top;
+  if (!canvas.value || !gameRunning) return;
+  try {
+    e.preventDefault();
+    isTouching = true;
+    const touch = e.touches[0];
+    const rect = canvas.value.getBoundingClientRect();
+    touchX = touch.clientX - rect.left;
+    touchY = touch.clientY - rect.top;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function handleTouchMove(e) {
-  e.preventDefault();
-  if (!isTouching) return;
-  const touch = e.touches[0];
-  const rect = canvas.value.getBoundingClientRect();
-  touchX = touch.clientX - rect.left;
-  touchY = touch.clientY - rect.top;
+  if (!canvas.value || !gameRunning) return;
+  try {
+    e.preventDefault();
+    if (!isTouching) return;
+    const touch = e.touches[0];
+    const rect = canvas.value.getBoundingClientRect();
+    touchX = touch.clientX - rect.left;
+    touchY = touch.clientY - rect.top;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function handleTouchEnd(e) {
-  e.preventDefault();
-  isTouching = false;
+  if (!canvas.value) return;
+  try {
+    e.preventDefault();
+    isTouching = false;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function handleMouseDown(e) {
-  isTouching = true;
-  const rect = canvas.value.getBoundingClientRect();
-  touchX = e.clientX - rect.left;
-  touchY = e.clientY - rect.top;
+  if (!canvas.value || !gameRunning) return;
+  try {
+    isTouching = true;
+    const rect = canvas.value.getBoundingClientRect();
+    touchX = e.clientX - rect.left;
+    touchY = e.clientY - rect.top;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function handleMouseMove(e) {
-  if (!isTouching) return;
-  const rect = canvas.value.getBoundingClientRect();
-  touchX = e.clientX - rect.left;
-  touchY = e.clientY - rect.top;
+  if (!canvas.value || !gameRunning) return;
+  try {
+    if (!isTouching) return;
+    const rect = canvas.value.getBoundingClientRect();
+    touchX = e.clientX - rect.left;
+    touchY = e.clientY - rect.top;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function handleMouseUp() {
-  isTouching = false;
+  if (!canvas.value) return;
+  try {
+    isTouching = false;
+  } catch (err) {
+    // 静默处理错误
+  }
 }
 
 function setCanvasSize() {
@@ -1337,6 +1395,16 @@ function gameLoop(currentTime) {
 
   ctx.fillStyle = '#0a0e27';
   ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+
+  // 掉血红色闪光特效
+  if (damageFlash.active) {
+    ctx.fillStyle = `rgba(255, 0, 0, ${damageFlash.opacity})`;
+    ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+    damageFlash.opacity -= 0.02;
+    if (damageFlash.opacity <= 0) {
+      damageFlash.active = false;
+    }
+  }
 
   // 滚动星空背景
   ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
@@ -1587,6 +1655,7 @@ function gameLoop(currentTime) {
         createExplosion(enemy.x, enemy.y, '#00bcd4');
       } else {
         health.value -= 20;
+        triggerDamageFlash(); // 触发掉血特效
         createExplosion(enemy.x, enemy.y, '#ff4757');
         if (health.value <= 0) {
           endGame();
@@ -1607,6 +1676,7 @@ function gameLoop(currentTime) {
         const penalty = Math.floor(5 * getScoreMultiplier());
         score.value = Math.max(0, score.value - penalty);
         health.value = Math.max(0, health.value - 5); // 扣血
+        triggerDamageFlash(); // 触发掉血特效
         if (health.value <= 0) {
           endGame();
           return true; // 保持敌机，但立即停止游戏
@@ -1633,6 +1703,7 @@ function gameLoop(currentTime) {
         createExplosion(bullet.x, bullet.y, '#00bcd4');
       } else {
         health.value = Math.max(0, health.value - bullet.damage);
+        triggerDamageFlash(); // 触发掉血特效
         createExplosion(bullet.x, bullet.y, '#ff0066');
         if (health.value <= 0) {
           endGame();
@@ -1663,10 +1734,13 @@ function gameLoop(currentTime) {
 function endGame(victory = false) {
   if (!gameRunning) return; // 防止重复调用
   gameRunning = false;
+  isTouching = false; // 停止触摸
+  
   if (animationId) {
     cancelAnimationFrame(animationId);
     animationId = null;
   }
+  
   const finalScore = Math.floor(score.value * (1 + gameTime.value * 0.01));
   emit('gameOver', finalScore, victory);
 }

@@ -9,13 +9,15 @@ const leaderboard = ref([]);
 const loading = ref(false);
 const error = ref('');
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:12580';
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:12580/api'
+});
 
 async function fetchLeaderboard() {
   loading.value = true;
   error.value = '';
   try {
-    const response = await axios.get(`${API_URL}/api/scores`, {
+    const response = await api.get('/scores', {
       params: { difficulty: difficulty.value }
     });
     leaderboard.value = response.data;

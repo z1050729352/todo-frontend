@@ -111,7 +111,6 @@ html, body {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -126,5 +125,13 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+/* 游戏中心和排行榜页面允许滚动 */
+.app > .game-hub,
+.app > .leaderboard-view {
+  touch-action: pan-y; /* 允许垂直滚动 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 </style>

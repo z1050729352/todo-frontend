@@ -108,13 +108,18 @@ function viewLeaderboard() {
 <style scoped>
 .game-hub {
   width: 100%;
+  height: 100vh;
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 20px;
+  padding-bottom: 40px; /* 底部留白 */
   overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
 }
 
 .hub-header {
@@ -183,6 +188,7 @@ function viewLeaderboard() {
   overflow: hidden;
   animation: fadeInUp 0.6s ease-out backwards;
   animation-delay: calc(var(--index, 0) * 0.1s);
+  touch-action: manipulation; /* 优化触摸响应 */
 }
 
 .game-card:nth-child(1) { --index: 0; }
@@ -190,7 +196,8 @@ function viewLeaderboard() {
 .game-card:nth-child(3) { --index: 2; }
 .game-card:nth-child(4) { --index: 3; }
 
-.game-card:hover:not(.disabled) {
+.game-card:hover:not(.disabled),
+.game-card:active:not(.disabled) {
   transform: translateY(-8px) scale(1.02);
   box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
 }
@@ -213,7 +220,8 @@ function viewLeaderboard() {
 
 .game-icon {
   font-size: 4rem;
-  margin-bottom: 15px;
+  margin-bottom: 20px; /* 增加底部间距 */
+  margin-top: 10px; /* 增加顶部间距 */
   animation: bounce 2s infinite;
 }
 
@@ -227,6 +235,7 @@ function viewLeaderboard() {
   margin-bottom: 10px;
   font-weight: bold;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  color: #fff; /* 强制白色 */
 }
 
 .game-description {
@@ -234,6 +243,7 @@ function viewLeaderboard() {
   opacity: 0.95;
   margin-bottom: 20px;
   line-height: 1.5;
+  color: #fff; /* 强制白色 */
 }
 
 .card-footer {
@@ -249,9 +259,11 @@ function viewLeaderboard() {
   border-radius: 20px;
   backdrop-filter: blur(10px);
   transition: all 0.3s ease;
+  color: #fff; /* 强制白色 */
 }
 
-.game-card:hover:not(.disabled) .play-btn {
+.game-card:hover:not(.disabled) .play-btn,
+.game-card:active:not(.disabled) .play-btn {
   background: rgba(255, 255, 255, 0.3);
   transform: translateX(5px);
 }
@@ -260,6 +272,7 @@ function viewLeaderboard() {
   font-size: 0.9rem;
   opacity: 0.8;
   font-style: italic;
+  color: #fff; /* 强制白色 */
 }
 
 .card-shine {
@@ -290,6 +303,8 @@ function viewLeaderboard() {
   color: rgba(255, 255, 255, 0.8);
   font-size: 0.9rem;
   margin-top: 20px;
+  margin-bottom: 20px; /* 确保底部有空间 */
+  padding-bottom: 20px;
   animation: fadeIn 0.6s ease-out 0.4s backwards;
 }
 
@@ -343,6 +358,14 @@ function viewLeaderboard() {
 }
 
 @media (max-width: 480px) {
+  .game-hub {
+    padding: 15px;
+    /* 确保可以滚动 */
+    height: 100vh;
+    overflow-y: scroll;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .hub-title {
     font-size: 2rem;
   }
@@ -353,14 +376,23 @@ function viewLeaderboard() {
 
   .game-icon {
     font-size: 3rem;
+    margin-top: 5px;
+    margin-bottom: 15px;
   }
 
   .game-name {
     font-size: 1.5rem;
+    color: #fff !important; /* 强制白色 */
   }
 
   .game-description {
     font-size: 0.9rem;
+    color: #fff !important; /* 强制白色 */
+  }
+  
+  .play-btn,
+  .coming-soon {
+    color: #fff !important; /* 强制白色 */
   }
 }
 </style>
