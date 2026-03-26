@@ -21,30 +21,33 @@ let startTime = 0;
 const difficultyConfig = {
   easy: { 
     enemySpeed: 2, 
-    enemySpawnRate: 0.015, 
+    enemySpawnRate: 0.02, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 0.7, 
     bossHealPercent: 30,
-    powerUpRate: 0.0015, // 提升道具掉落率
-    initialFireRate: 250 // 初始射速（毫秒）
+    powerUpRate: 0.0015,
+    initialFireRate: 250,
+    enemyCountMultiplier: 1 // 敌机数量倍率
   },
   medium: { 
     enemySpeed: 3.5, 
-    enemySpawnRate: 0.025, 
+    enemySpawnRate: 0.03, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 1, 
     bossHealPercent: 20,
-    powerUpRate: 0.0012, // 提升道具掉落率
-    initialFireRate: 200
+    powerUpRate: 0.0012,
+    initialFireRate: 200,
+    enemyCountMultiplier: 1.3
   },
   hard: { 
     enemySpeed: 5, 
-    enemySpawnRate: 0.04, 
+    enemySpawnRate: 0.05, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 1.5, 
     bossHealPercent: 15,
-    powerUpRate: 0.0015, // 困难模式也提高道具掉落率，和简单模式一样
-    initialFireRate: 180
+    powerUpRate: 0.0015,
+    initialFireRate: 180,
+    enemyCountMultiplier: 1.6
   }
 };
 
@@ -552,19 +555,36 @@ class Enemy {
     this.width = 35;
     this.height = 35;
     this.level = level;
-    this.maxHealth = level * 2; // 增加基础血量
+    
+    // 敌机血量：中期（3-5级Boss期间）翻倍，后期（6级+）再翻倍
+    let healthMultiplier = 1;
+    if (bossLevel >= 6) {
+      healthMultiplier = 4; // 后期敌机血量4倍
+    } else if (bossLevel >= 3) {
+      healthMultiplier = 2; // 中期敌机血量2倍
+    }
+    this.maxHealth = level * 2 * healthMultiplier;
     this.health = this.maxHealth;
     
-    // 防御系统：等级越高防御越高，前期更低
-    // 1级: 0%, 2级: 5%, 3级: 12%, 4级: 20%, 5级+: 30%+
+    // 防御系统：等级越高防御越高，中后期大幅提升
+    // 1级: 0%, 2级: 5%, 3级: 15%, 4级: 25%, 5级+: 35%+（中后期再加10%）
     if (level === 1) {
-      this.defense = 0; // 1级无防御
+      this.defense = 0;
     } else if (level === 2) {
-      this.defense = 0.05; // 2级5%
+      this.defense = 0.05;
     } else if (level === 3) {
-      this.defense = 0.12; // 3级12%
+      this.defense = 0.15;
+    } else if (level === 4) {
+      this.defense = 0.25;
     } else {
-      this.defense = Math.min(0.2 + (level - 4) * 0.1, 0.6); // 4级起20%，每级+10%，最高60%
+      this.defense = Math.min(0.35 + (level - 4) * 0.1, 0.75);
+    }
+    
+    // 中后期防御再提升10%
+    if (bossLevel >= 6) {
+      this.defense = Math.min(this.defense + 0.1, 0.85);
+    } else if (bossLevel >= 3) {
+      this.defense = Math.min(this.defense + 0.05, 0.8);
     }
     
     // 根据等级设置敌机类型
@@ -746,11 +766,19 @@ class Boss {
     }
     
     // 血量大幅提升，随等级递增，中后期更强
-    const baseHealth = attackType === 'buff' ? 1200 : 400; // 提高基础血量
-    // 5级以后血量增长加速
-    const healthGrowth = level <= 5 ? level * 120 : 600 + (level - 5) * 180;
+    // 阶段3以后血量大幅增加（至少3-5倍）
+    let baseHealth = attackType === 'buff' ? 1200 : 400;
+    let healthGrowth = level <= 2 ? level * 120 : level === 3 ? 500 : level === 4 ? 800 : level === 5 ? 1200 : 1500 + (level - 5) * 300;
+    
+    // 阶段3以后血量翻倍增加
+    if (level >= 3) {
+      baseHealth *= 3;
+      healthGrowth *= 2.5;
+    }
+    
     this.maxHealth = baseHealth + healthGrowth;
     this.health = this.maxHealth;
+    this.healthBars = level >= 3 ? Math.ceil(this.maxHealth / 2000) : 1; // 3阶段后每2000血一条血条
     
     // 防御系统：中后期大幅加强
     if (level === 1) {
@@ -758,12 +786,12 @@ class Boss {
     } else if (level === 2) {
       this.defense = 0.25; // 2级25%
     } else if (level === 3) {
-      this.defense = 0.3; // 3级30%
+      this.defense = 0.35; // 3级35%（提升）
     } else if (level <= 5) {
-      this.defense = 0.35 + (level - 4) * 0.05; // 4-5级：35%-40%
+      this.defense = 0.4 + (level - 4) * 0.05; // 4-5级：40%-45%
     } else {
-      // 6级以后防御大幅提升
-      this.defense = Math.min(0.45 + (level - 6) * 0.06, 0.85); // 6级起45%，每级+6%，最高85%
+      // 6级以后防御大幅提升，最高90%
+      this.defense = Math.min(0.5 + (level - 6) * 0.08, 0.9);
     }
     
     this.lastAttackTime = 0;
@@ -831,17 +859,49 @@ class Boss {
     ctx.fillStyle = this.color + 'cc';
     ctx.fillRect(this.x - 40, this.y, 80, 12);
     
+    // 多血条显示
     const barWidth = 100;
     const barHeight = 8;
     const barX = this.x - barWidth / 2;
     const barY = this.y - 40;
+    const barSpacing = 4;
     
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(barX, barY, barWidth, barHeight);
-    
-    const healthPercent = this.health / this.maxHealth;
-    ctx.fillStyle = healthPercent > 0.5 ? '#4caf50' : healthPercent > 0.25 ? '#ff9800' : '#f44336';
-    ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
+    if (this.healthBars > 1) {
+      // 多条血条显示
+      const totalBarsHeight = this.healthBars * barHeight + (this.healthBars - 1) * barSpacing;
+      const startY = barY - totalBarsHeight - 10;
+      
+      // 绘制所有血条
+      for (let i = 0; i < this.healthBars; i++) {
+        const currentBarY = startY + i * (barHeight + barSpacing);
+        const barHealth = Math.max(0, Math.min(this.health - i * 2000, 2000));
+        const barHealthPercent = barHealth / 2000;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(barX, currentBarY, barWidth, barHeight);
+        
+        const barColor = barHealthPercent > 0.5 ? '#4caf50' : barHealthPercent > 0.25 ? '#ff9800' : '#f44336';
+        ctx.fillStyle = barColor;
+        ctx.fillRect(barX, currentBarY, barWidth * barHealthPercent, barHeight);
+      }
+      
+      // 显示血条倍数
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#000';
+      ctx.shadowBlur = 4;
+      ctx.fillText(`✖️${this.healthBars}`, this.x, startY - 8);
+      ctx.shadowBlur = 0;
+    } else {
+      // 单血条显示
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+      ctx.fillRect(barX, barY, barWidth, barHeight);
+      
+      const healthPercent = this.health / this.maxHealth;
+      ctx.fillStyle = healthPercent > 0.5 ? '#4caf50' : healthPercent > 0.25 ? '#ff9800' : '#f44336';
+      ctx.fillRect(barX, barY, barWidth * healthPercent, barHeight);
+    }
     
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 14px Arial';
@@ -1909,7 +1969,17 @@ function gameLoop(currentTime) {
   }
 
   // Boss 存在时也生成普通敌机（仅在游戏正式开始后）
-  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && Math.random() < config.enemySpawnRate * (currentBoss ? 0.5 : 1)) {
+  // 中后期增加敌机生成，中期（3-6级Boss）增加50%，后期（7级+）增加100%
+  let enemySpawnMultiplier = config.enemyCountMultiplier;
+  if (bossLevel >= 7) {
+    enemySpawnMultiplier *= 2; // 后期敌机翻倍
+  } else if (bossLevel >= 3) {
+    enemySpawnMultiplier *= 1.5; // 中期敌机增加50%
+  }
+  
+  const effectiveSpawnRate = config.enemySpawnRate * enemySpawnMultiplier * (currentBoss ? 0.5 : 1);
+  
+  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && Math.random() < effectiveSpawnRate) {
     const enemyLevel = getEnemyLevel();
     const newEnemy = new Enemy(enemyLevel);
     
