@@ -6,12 +6,52 @@ const emit = defineEmits(['start', 'back']);
 const playerName = ref('');
 const difficulty = ref('medium');
 const showGuide = ref(false); // 显示武器指南
+const weaponDetail = ref(null); // 显示武器详情
 
 const difficulties = [
   { value: 'easy', label: '简单', desc: '适合新手' },
   { value: 'medium', label: '中等', desc: '有点挑战' },
   { value: 'hard', label: '困难', desc: '极限挑战' }
 ];
+
+const weaponDetails = {
+  laser: {
+    name: '激光',
+    icon: '光',
+    color: '#9c27b0',
+    description: '发射长条激光线，穿透力强',
+    features: [
+      '攻击形态：长条激光线',
+      '基础伤害：3点',
+      '升级效果：每级+1伤害',
+      '特点：攻击范围大，适合清理密集敌人'
+    ]
+  },
+  burst: {
+    name: '爆裂',
+    icon: '裂',
+    color: '#00bcd4',
+    description: '发射能量球，等级越高球越大',
+    features: [
+      '攻击形态：能量球',
+      '基础伤害：2点',
+      '升级效果：每级+1伤害，球体变大',
+      '特点：攻击范围随等级增长'
+    ]
+  },
+  explosive: {
+    name: '爆炸',
+    icon: '爆',
+    color: '#ff9800',
+    description: '击中后产生范围爆炸伤害',
+    features: [
+      '攻击形态：爆炸弹',
+      '基础伤害：2点',
+      '升级效果：每级+1伤害，爆炸范围+10',
+      '特点：范围伤害，适合群体攻击'
+    ]
+  }
+};
 
 function handleStart() {
   if (!playerName.value.trim()) {
@@ -27,6 +67,15 @@ function goBack() {
 
 function toggleGuide() {
   showGuide.value = !showGuide.value;
+  weaponDetail.value = null; // 关闭武器详情
+}
+
+function showWeaponDetail(weaponType) {
+  weaponDetail.value = weaponType;
+}
+
+function closeWeaponDetail() {
+  weaponDetail.value = null;
 }
 </script>
 
@@ -108,20 +157,21 @@ function toggleGuide() {
           <h3>🔫 弹道类武器（互斥）</h3>
           <p class="guide-note">只能拥有一种，切换会重置等级</p>
           <div class="weapon-grid">
-            <div class="weapon-item">
+            <div class="weapon-item clickable" @click="showWeaponDetail('laser')">
               <span class="weapon-icon" style="background: #9c27b0;">光</span>
               <span>激光</span>
             </div>
-            <div class="weapon-item">
+            <div class="weapon-item clickable" @click="showWeaponDetail('burst')">
               <span class="weapon-icon" style="background: #00bcd4;">裂</span>
               <span>爆裂</span>
             </div>
-            <div class="weapon-item">
+            <div class="weapon-item clickable" @click="showWeaponDetail('explosive')">
               <span class="weapon-icon" style="background: #ff9800;">爆</span>
               <span>爆炸</span>
             </div>
           </div>
           <p class="example">例：光3 → 吃到裂 → 裂1</p>
+          <p class="click-hint">💡 点击武器图标查看详情</p>
         </div>
         
         <div class="guide-section">
@@ -171,6 +221,26 @@ function toggleGuide() {
         </div>
         
         <button class="understand-btn" @click="toggleGuide">我明白了</button>
+      </div>
+    </div>
+    
+    <!-- 武器详情弹窗 -->
+    <div v-if="weaponDetail" class="weapon-detail-overlay" @click="closeWeaponDetail">
+      <div class="weapon-detail-modal" @click.stop>
+        <button class="close-btn" @click="closeWeaponDetail">✕</button>
+        <div class="weapon-detail-header" :style="{ background: weaponDetails[weaponDetail].color }">
+          <span class="weapon-detail-icon">{{ weaponDetails[weaponDetail].icon }}</span>
+          <h3>{{ weaponDetails[weaponDetail].name }}</h3>
+        </div>
+        <div class="weapon-detail-content">
+          <p class="weapon-desc">{{ weaponDetails[weaponDetail].description }}</p>
+          <div class="weapon-features">
+            <div v-for="(feature, index) in weaponDetails[weaponDetail].features" :key="index" class="feature-item">
+              <span class="feature-dot">•</span>
+              <span>{{ feature }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -521,6 +591,16 @@ input::placeholder {
   border-radius: 8px;
   color: #fff;
   font-size: 0.85rem;
+  transition: all 0.3s ease;
+}
+
+.weapon-item.clickable {
+  cursor: pointer;
+}
+
+.weapon-item.clickable:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
 }
 
 .weapon-icon {
@@ -543,6 +623,14 @@ input::placeholder {
   margin-top: 0.5rem;
 }
 
+.click-hint {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.75rem;
+  text-align: center;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
 .understand-btn {
   width: 100%;
   padding: 1rem;
@@ -560,6 +648,95 @@ input::placeholder {
 .understand-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(102, 126, 234, 0.6);
+}
+
+.weapon-detail-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.weapon-detail-modal {
+  background: linear-gradient(135deg, #1a1f3a 0%, #2a2f4a 100%);
+  border-radius: 20px;
+  max-width: 400px;
+  width: 90%;
+  position: relative;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease-out;
+  overflow: hidden;
+}
+
+.weapon-detail-header {
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  position: relative;
+}
+
+.weapon-detail-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: bold;
+  font-size: 2rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.weapon-detail-header h3 {
+  color: #fff;
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.weapon-detail-content {
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.weapon-desc {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.weapon-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.feature-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.feature-dot {
+  color: #4a9eff;
+  font-size: 1.2rem;
+  line-height: 1.3;
 }
 
 @keyframes fadeIn {

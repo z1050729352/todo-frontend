@@ -48,8 +48,8 @@ const difficultyConfig = {
   }
 };
 
-const MAX_GAME_TIME = 1200; // 20分钟
 let gameCompleted = false;
+const MAX_BOSS_COUNT = 12; // 打完12个Boss通关
 
 const config = difficultyConfig[props.difficulty];
 
@@ -730,8 +730,21 @@ class Boss {
     }
     
     this.lastAttackTime = 0;
-    // 攻击间隔缩短，更频繁
-    this.attackInterval = attackType === 'small-fast' ? 600 : 800;
+    // 攻击间隔
+    if (attackType === 'small-fast') {
+      this.attackInterval = 600;
+    } else if (attackType === 'shield-gen') {
+      this.attackInterval = 800;
+      this.lastShieldTime = 0;
+      this.shieldInterval = 5000; // 每5秒生成护盾
+      this.bossShield = 0; // Boss护盾
+      this.maxBossShield = 10; // 最多10层护盾
+    } else if (attackType === 'rain') {
+      this.attackInterval = 3000; // 全屏子弹雨间隔更长
+    } else {
+      this.attackInterval = 800;
+    }
+    
     this.moveDirection = 1;
     this.damage = Math.floor(10 + level * 5) * config.bossAttackMultiplier;
     this.color = this.getColorByType(attackType);
@@ -743,8 +756,8 @@ class Boss {
       laser: '#ff0066',
       spread: '#9c27b0',
       circle: '#2196f3',
-      'left-right': '#00bcd4',
-      'right-left': '#ff5722',
+      'shield-gen': '#00bcd4',
+      'rain': '#ff5722',
       'small-fast': '#4caf50',
       'big-spread': '#e91e63',
       'laser-line': '#9c27b0',
@@ -754,6 +767,21 @@ class Boss {
   }
 
   draw() {
+    // Boss护盾效果
+    if (this.attackType === 'shield-gen' && this.bossShield > 0) {
+      ctx.strokeStyle = 'rgba(0, 188, 212, 0.6)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, 50, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // 显示护盾层数
+      ctx.fillStyle = '#00bcd4';
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`盾${this.bossShield}`, this.x, this.y + 60);
+    }
+    
     ctx.fillStyle = this.color;
     ctx.beginPath();
     ctx.moveTo(this.x, this.y + 30);
@@ -785,6 +813,14 @@ class Boss {
   }
 
   update(currentTime) {
+    // 护盾生成Boss：每5秒生成护盾
+    if (this.attackType === 'shield-gen' && currentTime - this.lastShieldTime > this.shieldInterval) {
+      if (this.bossShield < this.maxBossShield) {
+        this.bossShield = this.maxBossShield; // 刷新护盾
+        this.lastShieldTime = currentTime;
+      }
+    }
+    
     // 根据类型调整移动速度
     const speed = this.attackType === 'small-fast' ? this.moveSpeed : 
                   this.attackType === 'buff' ? this.moveSpeed : 2;
@@ -829,17 +865,19 @@ class Boss {
         const angle = (i / 16) * Math.PI * 2;
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage));
       }
-    } else if (this.attackType === 'left-right') {
-      // Boss 4: 左斜射击 - 向左下方斜射
-      for (let i = 0; i < 7; i++) {
-        const angle = Math.PI / 2 + Math.PI / 6 + (i * Math.PI / 24); // 向左下斜射
+    } else if (this.attackType === 'shield-gen') {
+      // Boss 4: 护盾生成 - 普通扇形攻击
+      for (let i = -3; i <= 3; i++) {
+        const angle = Math.PI / 2 + (i * Math.PI / 12);
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
       }
-    } else if (this.attackType === 'right-left') {
-      // Boss 5: 右斜射击 - 向右下方斜射
-      for (let i = 0; i < 7; i++) {
-        const angle = Math.PI / 2 - Math.PI / 6 - (i * Math.PI / 24); // 向右下斜射
-        bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
+    } else if (this.attackType === 'rain') {
+      // Boss 5: 全屏子弹雨 - 从屏幕上方随机位置生成子弹向下飞
+      const bulletCount = 20 + this.level * 2; // 等级越高子弹越多
+      for (let i = 0; i < bulletCount; i++) {
+        const randomX = Math.random() * canvas.value.width;
+        const randomAngle = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
+        bossBullets.push(new BossBullet(randomX, -20, randomAngle, this.damage, 6));
       }
     } else if (this.attackType === 'small-fast') {
       // Boss 6: 小而快，快速连射
@@ -1382,12 +1420,7 @@ function gameLoop(currentTime) {
 
   gameTime.value = Math.floor((currentTime - startTime) / 1000);
   
-  if (gameTime.value >= MAX_GAME_TIME && !gameCompleted) {
-    gameCompleted = true;
-    if (sounds.victory) sounds.victory();
-    endGame(true);
-    return;
-  }
+  // 不设置时间限制，只有打完12个Boss才算通关
 
   // 地图滚动
   mapOffset += mapSpeed;
@@ -1507,7 +1540,7 @@ function gameLoop(currentTime) {
   const timeSinceLastBoss = lastBossDefeatedTime > 0 ? currentTime - lastBossDefeatedTime : timeSinceStart;
   
   if (!currentBoss && timeSinceLastBoss > nextBossTime) {
-    const attackTypes = ['spiral', 'spread', 'circle', 'left-right', 'right-left', 'small-fast', 'big-spread', 'laser-line', 'buff'];
+    const attackTypes = ['spiral', 'spread', 'circle', 'shield-gen', 'rain', 'small-fast', 'big-spread', 'laser-line', 'buff'];
     let attackType;
     if (bossLevel <= 9) {
       attackType = attackTypes[bossLevel - 1];
@@ -1540,6 +1573,22 @@ function gameLoop(currentTime) {
         // 先执行爆炸效果
         if (typeof bullet.explode === 'function') {
           bullet.explode();
+        }
+        
+        // 护盾Boss：先消耗护盾
+        if (currentBoss.attackType === 'shield-gen' && currentBoss.bossShield > 0) {
+          currentBoss.bossShield--;
+          createExplosion(currentBoss.x, currentBoss.y, '#00bcd4');
+          
+          // 护盾抵挡攻击，不删除穿甲弹
+          if (typeof bullet.canPierce === 'function' && bullet.canPierce()) {
+            if (typeof bullet.onHit === 'function') {
+              bullet.onHit();
+            }
+          } else {
+            bullets.splice(i, 1);
+          }
+          continue; // 护盾抵挡，不扣血
         }
         
         // 计算实际伤害（考虑防御和穿甲）
@@ -1580,6 +1629,14 @@ function gameLoop(currentTime) {
           
           // 记录Boss被击败的时间，作为下一个Boss计时的起点
           lastBossDefeatedTime = currentTime;
+          
+          // 检查是否通关（打完12个Boss）
+          if (bossLevel > MAX_BOSS_COUNT && !gameCompleted) {
+            gameCompleted = true;
+            if (sounds.victory) sounds.victory();
+            endGame(true);
+            return;
+          }
           
           currentBoss = null;
           break; // 立即退出循环，不再处理其他子弹

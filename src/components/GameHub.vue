@@ -9,6 +9,7 @@ const games = [
     name: '飞机大战',
     icon: '✈️',
     description: '经典射击游戏，消灭敌机获得高分',
+    tip: '击败12个Boss即可通关',
     color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     available: true
   },
@@ -17,6 +18,7 @@ const games = [
     name: '俄罗斯方块',
     icon: '🧱',
     description: '经典益智游戏，即将推出',
+    tip: '',
     color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
     available: false
   },
@@ -25,6 +27,7 @@ const games = [
     name: '贪吃蛇',
     icon: '🐍',
     description: '经典休闲游戏，即将推出',
+    tip: '',
     color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
     available: false
   },
@@ -33,6 +36,7 @@ const games = [
     name: '拼图游戏',
     icon: '🧩',
     description: '考验智力的拼图挑战，即将推出',
+    tip: '',
     color: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
     available: false
   }
@@ -90,6 +94,7 @@ function viewLeaderboard() {
           <div class="game-icon">{{ game.icon }}</div>
           <h2 class="game-name">{{ game.name }}</h2>
           <p class="game-description">{{ game.description }}</p>
+          <p v-if="game.tip" class="game-tip">{{ game.tip }}</p>
           <div class="card-footer">
             <span v-if="game.available" class="play-btn">开始游戏 →</span>
             <span v-else class="coming-soon">敬请期待</span>
@@ -241,9 +246,17 @@ function viewLeaderboard() {
 .game-description {
   font-size: 0.95rem;
   opacity: 0.95;
-  margin-bottom: 20px;
+  margin-bottom: 8px;
   line-height: 1.5;
   color: #fff; /* 强制白色 */
+}
+
+.game-tip {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  margin-bottom: 15px;
+  color: #ffeb3b; /* 黄色提示 */
+  font-style: italic;
 }
 
 .card-footer {
