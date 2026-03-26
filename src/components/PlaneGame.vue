@@ -49,14 +49,49 @@ const difficultyConfig = {
 };
 
 let gameCompleted = false;
-const MAX_BOSS_COUNT = 12; // 打完12个Boss通关
+const MAX_BOSS_COUNT = 12; // 打完 12 个 Boss 通关
 
 const config = difficultyConfig[props.difficulty];
 
 let currentBoss = null;
-let nextBossTime = 30000; // 第一个Boss的出现时间
-let lastBossDefeatedTime = 0; // 上一个Boss被击败的时间
+let nextBossTime = 30000; // 第一个 Boss 的出现时间
+let lastBossDefeatedTime = 0; // 上一个 Boss 被击败的时间
 let bossLevel = 1;
+
+// 游戏特效和提示系统
+let gameStartEffect = {
+  active: false,
+  phase: 0,
+  startTime: 0,
+  shipY: -100,
+  targetY: 0,
+  textAlpha: 0,
+  textScale: 0.5
+};
+
+let bossWarningEffect = {
+  active: false,
+  startTime: 0,
+  textAlpha: 0,
+  shakeIntensity: 0
+};
+
+let newEnemyWarning = {
+  active: false,
+  startTime: 0,
+  textAlpha: 0,
+  enemyType: ''
+};
+
+let victoryEffect = {
+  active: false,
+  startTime: 0,
+  particles: [],
+  textAlpha: 1,
+  textScale: 1
+};
+
+let notifiedEnemyTypes = new Set();
 
 // 音效系统
 const sounds = {
@@ -1318,6 +1353,219 @@ function createExplosion(x, y, color) {
   }
 }
 
+// 渲染游戏特效
+function renderGameEffects(currentTime) {
+  // 游戏开始特效
+  if (gameStartEffect.active) {
+    const elapsed = currentTime - gameStartEffect.startTime;
+    
+    if (gameStartEffect.phase === 1) {
+      // 飞船从上方飞入
+      const progress = Math.min(elapsed / 1000, 1);
+      gameStartEffect.shipY = -100 + (canvas.value.height - 100) * progress;
+      
+      // 绘制飞船
+      ctx.save();
+      ctx.translate(canvas.value.width / 2, gameStartEffect.shipY);
+      
+      // 飞船主体
+      ctx.fillStyle = '#4a9eff';
+      ctx.beginPath();
+      ctx.moveTo(0, -25);
+      ctx.lineTo(-20, 25);
+      ctx.lineTo(0, 15);
+      ctx.lineTo(20, 25);
+      ctx.closePath();
+      ctx.fill();
+      
+      // 引擎尾焰
+      const flameLength = 30 + Math.sin(elapsed * 0.02) * 10;
+      ctx.fillStyle = '#ff6b00';
+      ctx.beginPath();
+      ctx.moveTo(-10, 25);
+      ctx.lineTo(0, 25 + flameLength);
+      ctx.lineTo(10, 25);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.restore();
+      
+      if (progress >= 1) {
+        gameStartEffect.phase = 2;
+        gameStartEffect.startTime = currentTime;
+      }
+    } else if (gameStartEffect.phase === 2) {
+      // 显示"战斗开始了"文字
+      const progress = Math.min(elapsed / 800, 1);
+      gameStartEffect.textAlpha = Math.sin(progress * Math.PI);
+      gameStartEffect.textScale = 1 + Math.sin(progress * Math.PI) * 0.3;
+      
+      ctx.save();
+      ctx.translate(canvas.value.width / 2, canvas.value.height / 2);
+      ctx.scale(gameStartEffect.textScale, gameStartEffect.textScale);
+      ctx.globalAlpha = gameStartEffect.textAlpha;
+      
+      // 发光效果
+      ctx.shadowColor = '#ff6b00';
+      ctx.shadowBlur = 20;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 48px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('战斗开始了！', 0, 0);
+      
+      ctx.restore();
+      
+      if (elapsed > 1500) {
+        gameStartEffect.phase = 3;
+        gameStartEffect.startTime = currentTime;
+      }
+    } else if (gameStartEffect.phase === 3) {
+      // "开干吧！"文字
+      const progress = Math.min(elapsed / 1000, 1);
+      gameStartEffect.textAlpha = Math.sin(progress * Math.PI);
+      gameStartEffect.textScale = 1.2 + Math.sin(progress * Math.PI) * 0.2;
+      
+      ctx.save();
+      ctx.translate(canvas.value.width / 2, canvas.value.height / 2 + 50);
+      ctx.scale(gameStartEffect.textScale, gameStartEffect.textScale);
+      ctx.globalAlpha = gameStartEffect.textAlpha;
+      
+      ctx.shadowColor = '#ff0066';
+      ctx.shadowBlur = 25;
+      ctx.fillStyle = '#ffeb3b';
+      ctx.font = 'bold 56px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('开干吧！', 0, 0);
+      
+      ctx.restore();
+      
+      if (elapsed > 2000) {
+        gameStartEffect.active = false;
+        player.y = canvas.value.height - 100;
+      }
+    }
+  }
+  
+  // Boss 警告特效
+  if (bossWarningEffect.active) {
+    const elapsed = currentTime - bossWarningEffect.startTime;
+    const progress = Math.min(elapsed / 2000, 1);
+    
+    // 屏幕震动
+    const shake = Math.sin(elapsed * 0.05) * 5 * (1 - progress);
+    ctx.save();
+    ctx.translate(shake, shake);
+    
+    // 红色警告背景
+    ctx.fillStyle = `rgba(255, 0, 0, ${0.3 * (1 - progress)})`;
+    ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+    
+    // 警告文字
+    ctx.globalAlpha = 1 - progress;
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#ff0000';
+    ctx.font = 'bold 40px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠️ 警告：BOSS 来袭 ⚠️', canvas.value.width / 2, canvas.value.height / 2 - 50);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px Arial';
+    ctx.fillText(`LV.${bossLevel - 1} BOSS 即将出现！`, canvas.value.width / 2, canvas.value.height / 2 + 20);
+    
+    ctx.restore();
+    
+    if (elapsed > 2000) {
+      bossWarningEffect.active = false;
+    }
+  }
+  
+  // 新敌机警告
+  if (newEnemyWarning.active) {
+    const elapsed = currentTime - newEnemyWarning.startTime;
+    const progress = Math.min(elapsed / 1500, 1);
+    
+    ctx.save();
+    ctx.globalAlpha = 1 - progress;
+    ctx.shadowColor = '#ff9800';
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = '#ff9800';
+    ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`⚠️ 新敌机物种侵入！`, canvas.value.width / 2, 100);
+    ctx.restore();
+    
+    if (elapsed > 1500) {
+      newEnemyWarning.active = false;
+    }
+  }
+  
+  // 通关特效
+  if (victoryEffect.active) {
+    const elapsed = currentTime - victoryEffect.startTime;
+    
+    // 生成烟花粒子
+    if (elapsed % 200 < 50) {
+      for (let i = 0; i < 10; i++) {
+        victoryEffect.particles.push({
+          x: Math.random() * canvas.value.width,
+          y: Math.random() * canvas.value.height * 0.5,
+          vx: (Math.random() - 0.5) * 10,
+          vy: (Math.random() - 0.5) * 10,
+          life: 1,
+          color: `hsl(${Math.random() * 360}, 100%, 50%)`
+        });
+      }
+    }
+    
+    // 更新和绘制粒子
+    victoryEffect.particles = victoryEffect.particles.filter(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.2;
+      p.life -= 0.02;
+      
+      if (p.life > 0) {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        return true;
+      }
+      return false;
+    });
+    
+    ctx.globalAlpha = 1;
+    
+    // 胜利文字
+    const pulse = Math.sin(elapsed * 0.005) * 0.2 + 1;
+    ctx.save();
+    ctx.translate(canvas.value.width / 2, canvas.value.height / 2 - 50);
+    ctx.scale(pulse, pulse);
+    
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 64px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎉 通关成功！🎉', 0, 0);
+    
+    ctx.restore();
+    
+    // 玩家名字
+    ctx.shadowBlur = 20;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${props.playerName || '玩家'} 太厉害了！`, canvas.value.width / 2, canvas.value.height / 2 + 50);
+    
+    ctx.restore();
+  }
+}
+
 let lastShootTime = 0;
 function autoShoot(currentTime) {
   if (!player) return;
@@ -1420,7 +1668,7 @@ function gameLoop(currentTime) {
 
   gameTime.value = Math.floor((currentTime - startTime) / 1000);
   
-  // 不设置时间限制，只有打完12个Boss才算通关
+  // 不设置时间限制，只有打完 12 个 Boss 才算通关
 
   // 地图滚动
   mapOffset += mapSpeed;
@@ -1428,6 +1676,9 @@ function gameLoop(currentTime) {
 
   ctx.fillStyle = '#0a0e27';
   ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
+  
+  // 渲染游戏特效
+  renderGameEffects(currentTime);
 
   // 掉血红色闪光特效
   if (damageFlash.active) {
@@ -1447,7 +1698,8 @@ function gameLoop(currentTime) {
     ctx.fillRect(x, y, 1, 1);
   }
 
-  if (isTouching && player) {
+  // 游戏开始特效期间不允许控制
+  if (isTouching && player && !gameStartEffect.active) {
     player.moveTo(touchX, touchY);
   }
   
@@ -1456,7 +1708,8 @@ function gameLoop(currentTime) {
     new Barrier().draw();
   }
   
-  if (player) {
+  // 游戏开始特效期间不绘制玩家
+  if (player && !gameStartEffect.active) {
     player.draw();
     autoShoot(currentTime);
   }
@@ -1543,18 +1796,22 @@ function gameLoop(currentTime) {
     if (bossLevel <= 9) {
       attackType = attackTypes[bossLevel - 1];
     } else {
-      // 9关后随机，但难度递增
+      // 9 关后随机，但难度递增
       attackType = attackTypes[Math.floor(Math.random() * attackTypes.length)];
     }
     currentBoss = new Boss(bossLevel, attackType);
     
-    // buff boss效果
+    // 触发 Boss 警告特效
+    bossWarningEffect.active = true;
+    bossWarningEffect.startTime = currentTime;
+    
+    // buff boss 效果
     if (attackType === 'buff') {
       config.enemySpawnRate *= 1.5;
     }
     
     bossLevel++;
-    // 重置下一个Boss的间隔时间（35-45秒）
+    // 重置下一个 Boss 的间隔时间（35-45 秒）
     nextBossTime = 35000 + Math.random() * 10000;
   }
 
@@ -1628,10 +1885,15 @@ function gameLoop(currentTime) {
           // 记录Boss被击败的时间，作为下一个Boss计时的起点
           lastBossDefeatedTime = currentTime;
           
-          // 检查是否通关（打完12个Boss）
+          // 检查是否通关（打完 12 个 Boss）
           if (bossLevel > MAX_BOSS_COUNT && !gameCompleted) {
             gameCompleted = true;
             if (sounds.victory) sounds.victory();
+            
+            // 触发通关特效
+            victoryEffect.active = true;
+            victoryEffect.startTime = currentTime;
+            
             endGame(true);
             return;
           }
@@ -1643,9 +1905,21 @@ function gameLoop(currentTime) {
     }
   }
 
-  // Boss存在时也生成普通敌机
+  // Boss 存在时也生成普通敌机
   if (enemies.length < MAX_ENEMIES && Math.random() < config.enemySpawnRate * (currentBoss ? 0.5 : 1)) {
-    enemies.push(new Enemy(getEnemyLevel()));
+    const enemyLevel = getEnemyLevel();
+    const newEnemy = new Enemy(enemyLevel);
+    
+    // 新敌机警告：只在高等级敌机（4 级+）或特殊类型第一次出现时提示
+    const enemyType = newEnemy.type;
+    if (enemyLevel >= 4 && !notifiedEnemyTypes.has(enemyType)) {
+      notifiedEnemyTypes.add(enemyType);
+      newEnemyWarning.active = true;
+      newEnemyWarning.startTime = currentTime;
+      newEnemyWarning.enemyType = enemyType;
+    }
+    
+    enemies.push(newEnemy);
   }
 
   enemies = enemies.filter(enemy => {
@@ -1772,17 +2046,30 @@ function gameLoop(currentTime) {
 }
 
 function endGame(victory = false) {
-  if (!gameRunning) return; // 防止重复调用
-  gameRunning = false;
-  isTouching = false; // 停止触摸
+  if (!gameRunning && !victory) return; // 防止重复调用，但通关时允许继续
   
-  if (animationId) {
-    cancelAnimationFrame(animationId);
-    animationId = null;
+  if (!victory) {
+    // 失败时立即停止
+    gameRunning = false;
+    isTouching = false;
+    
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+      animationId = null;
+    }
+    
+    const finalScore = Math.floor(score.value * (1 + gameTime.value * 0.01));
+    emit('gameOver', finalScore, victory);
+  } else {
+    // 通关时继续运行以显示特效，5 秒后再结束
+    gameRunning = false;
+    isTouching = false;
+    
+    setTimeout(() => {
+      const finalScore = Math.floor(score.value * (1 + gameTime.value * 0.01));
+      emit('gameOver', finalScore, victory);
+    }, 5000);
   }
-  
-  const finalScore = Math.floor(score.value * (1 + gameTime.value * 0.01));
-  emit('gameOver', finalScore, victory);
 }
 
 onMounted(() => {
@@ -1797,7 +2084,8 @@ onMounted(() => {
   setCanvasSize();
   window.addEventListener('resize', setCanvasSize);
 
-  player = new Player(canvas.value.width / 2, canvas.value.height - 100);
+  // 初始化玩家位置（但先不绘制，等特效结束）
+  player = new Player(canvas.value.width / 2, canvas.value.height + 200); // 先放在屏幕外
 
   canvas.value.addEventListener('touchstart', handleTouchStart, { passive: false });
   canvas.value.addEventListener('touchmove', handleTouchMove, { passive: false });
@@ -1808,6 +2096,12 @@ onMounted(() => {
 
   gameRunning = true;
   startTime = performance.now();
+  
+  // 触发游戏开始特效
+  gameStartEffect.active = true;
+  gameStartEffect.startTime = performance.now();
+  gameStartEffect.phase = 1;
+  
   animationId = requestAnimationFrame(gameLoop);
 });
 
