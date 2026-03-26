@@ -973,10 +973,12 @@ class Boss {
         bossBullets.push(new BossBullet(this.x, this.y + 20, angle, this.damage, 5));
       }
     } else if (this.attackType === 'rain') {
-      // Boss 5: 全屏子弹雨 - 从屏幕上方随机位置生成子弹向下飞
-      const bulletCount = 20 + this.level * 2; // 等级越高子弹越多
+      // Boss 5: 全屏子弹雨 - 减少一半覆盖面积
+      const bulletCount = 10 + this.level; // 子弹数量减半
+      const centerX = canvas.value.width / 2;
+      const spreadWidth = canvas.value.width / 2; // 覆盖屏幕一半宽度
       for (let i = 0; i < bulletCount; i++) {
-        const randomX = Math.random() * canvas.value.width;
+        const randomX = centerX + (Math.random() - 0.5) * spreadWidth;
         const randomAngle = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
         bossBullets.push(new BossBullet(randomX, -20, randomAngle, this.damage, 6));
       }
