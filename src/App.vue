@@ -8,6 +8,7 @@ const gameState = ref('start'); // start, playing, leaderboard
 const playerName = ref('');
 const difficulty = ref('medium');
 const finalScore = ref(0);
+const isVictory = ref(false);
 
 function startGame(name, diff) {
   playerName.value = name;
@@ -15,9 +16,10 @@ function startGame(name, diff) {
   gameState.value = 'playing';
 }
 
-function gameOver(score) {
-  console.log('游戏结束，分数:', score);
+function gameOver(score, victory = false) {
+  console.log('游戏结束，分数:', score, '通关:', victory);
   finalScore.value = score;
+  isVictory.value = victory;
   gameState.value = 'leaderboard';
   console.log('切换到排行榜页面，玩家:', playerName.value, '难度:', difficulty.value, '分数:', finalScore.value);
 }
@@ -26,6 +28,7 @@ function backToStart() {
   gameState.value = 'start';
   playerName.value = '';
   finalScore.value = 0;
+  isVictory.value = false;
 }
 </script>
 
@@ -46,6 +49,7 @@ function backToStart() {
       :playerName="playerName"
       :score="finalScore"
       :difficulty="difficulty"
+      :isVictory="isVictory"
       @restart="backToStart"
     />
   </div>

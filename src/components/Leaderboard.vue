@@ -5,7 +5,8 @@ import axios from 'axios';
 const props = defineProps({
   playerName: String,
   score: Number,
-  difficulty: String
+  difficulty: String,
+  isVictory: Boolean
 });
 
 const emit = defineEmits(['restart']);
@@ -91,6 +92,20 @@ function handleRestart() {
   emit('restart');
 }
 
+function getVictoryMessage() {
+  const messages = [
+    '卧槽！20分钟不眨眼？你是赛博朋克吗？',
+    '传说中的"手速单身30年"就是你吧？',
+    '兄弟，你这操作NASA都想挖你！',
+    '这手速，建议去参加电竞世界杯！',
+    '我怀疑你不是人类，你是AI对吧？',
+    '20分钟无伤通关？开挂了吧兄弟！',
+    '你的反应速度已经超越人类极限了！',
+    '建议改名叫"飞机大战终结者"！'
+  ];
+  return messages[Math.floor(Math.random() * messages.length)];
+}
+
 onMounted(async () => {
   await saveScore();
 });
@@ -99,8 +114,15 @@ onMounted(async () => {
 <template>
   <div class="leaderboard">
     <div class="stars"></div>
-    <div class="content">
-      <h1 class="title">🏆 游戏结束</h1>
+    <div class="content" :class="{ victory: isVictory }">
+      <h1 class="title" v-if="!isVictory">🏆 游戏结束</h1>
+      <div v-else class="victory-banner">
+        <h1 class="victory-title">🎉 恭喜通关！🎉</h1>
+        <div class="victory-messages">
+          <p class="victory-msg">{{ getVictoryMessage() }}</p>
+          <p class="victory-subtitle">你已经是传说中的飞行员了！</p>
+        </div>
+      </div>
       
       <div class="result-card">
         <div class="result-item">
@@ -475,5 +497,57 @@ onMounted(async () => {
   .leaderboard-list {
     max-height: 200px;
   }
+}
+
+.content.victory {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2));
+  border: 3px solid #ffd700;
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+  animation: victoryPulse 2s ease-in-out infinite;
+}
+
+@keyframes victoryPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+.victory-banner {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #ffd700, #ff8c00);
+  border-radius: 15px;
+  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4);
+}
+
+.victory-title {
+  font-size: 2.5rem;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 215, 0, 0.6);
+  margin-bottom: 1rem;
+  animation: victoryShake 0.5s ease-in-out infinite;
+}
+
+@keyframes victoryShake {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(2deg); }
+}
+
+.victory-messages {
+  margin-top: 1rem;
+}
+
+.victory-msg {
+  font-size: 1.3rem;
+  color: #fff;
+  font-weight: bold;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+  margin-bottom: 0.5rem;
+}
+
+.victory-subtitle {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-style: italic;
 }
 </style>
