@@ -21,7 +21,7 @@ let startTime = 0;
 const difficultyConfig = {
   easy: { 
     enemySpeed: 2, 
-    enemySpawnRate: 0.02, 
+    enemySpawnRate: 0.015, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 0.7, 
     bossHealPercent: 30,
@@ -31,23 +31,23 @@ const difficultyConfig = {
   },
   medium: { 
     enemySpeed: 3.5, 
-    enemySpawnRate: 0.03, 
+    enemySpawnRate: 0.02, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 1, 
     bossHealPercent: 20,
     powerUpRate: 0.0012,
     initialFireRate: 200,
-    enemyCountMultiplier: 1.3
+    enemyCountMultiplier: 1
   },
   hard: { 
     enemySpeed: 5, 
-    enemySpawnRate: 0.05, 
+    enemySpawnRate: 0.025, 
     bulletSpeed: 8, 
     bossAttackMultiplier: 1.5, 
     bossHealPercent: 15,
     powerUpRate: 0.0015,
     initialFireRate: 180,
-    enemyCountMultiplier: 1.6
+    enemyCountMultiplier: 1
   }
 };
 
@@ -556,12 +556,12 @@ class Enemy {
     this.height = 35;
     this.level = level;
     
-    // 敌机血量：中期（3-5级Boss期间）翻倍，后期（6级+）再翻倍
+    // 敌机血量：4阶段才开始增加，7阶段后大幅增加
     let healthMultiplier = 1;
-    if (bossLevel >= 6) {
-      healthMultiplier = 4; // 后期敌机血量4倍
-    } else if (bossLevel >= 3) {
-      healthMultiplier = 2; // 中期敌机血量2倍
+    if (bossLevel >= 7) {
+      healthMultiplier = 3; // 7阶段后敌机血量3倍
+    } else if (bossLevel >= 4) {
+      healthMultiplier = 1.5; // 4阶段后敌机血量1.5倍
     }
     this.maxHealth = level * 2 * healthMultiplier;
     this.health = this.maxHealth;
@@ -580,10 +580,10 @@ class Enemy {
       this.defense = Math.min(0.35 + (level - 4) * 0.1, 0.75);
     }
     
-    // 中后期防御再提升10%
-    if (bossLevel >= 6) {
-      this.defense = Math.min(this.defense + 0.1, 0.85);
-    } else if (bossLevel >= 3) {
+    // 4阶段以后敌机防御再提升，7阶段后大幅提升
+    if (bossLevel >= 7) {
+      this.defense = Math.min(this.defense + 0.15, 0.85);
+    } else if (bossLevel >= 4) {
       this.defense = Math.min(this.defense + 0.05, 0.8);
     }
     
@@ -765,33 +765,35 @@ class Boss {
       this.moveSpeed = 2;
     }
     
-    // 血量大幅提升，随等级递增，中后期更强
-    // 阶段3以后血量大幅增加（至少3-5倍）
+    // 血量大幅提升，随等级递增，第4阶段才开始上压力
     let baseHealth = attackType === 'buff' ? 1200 : 400;
-    let healthGrowth = level <= 2 ? level * 120 : level === 3 ? 500 : level === 4 ? 800 : level === 5 ? 1200 : 1500 + (level - 5) * 300;
+    let healthGrowth = level <= 2 ? level * 120 : level === 3 ? 400 : level === 4 ? 600 : level === 5 ? 900 : 1200 + (level - 5) * 250;
     
-    // 阶段3以后血量翻倍增加
-    if (level >= 3) {
+    // 4阶段以后血量开始增加，7阶段后大幅增加
+    if (level >= 7) {
       baseHealth *= 3;
-      healthGrowth *= 2.5;
+      healthGrowth *= 3;
+    } else if (level >= 4) {
+      baseHealth *= 1.5;
+      healthGrowth *= 1.5;
     }
     
     this.maxHealth = baseHealth + healthGrowth;
     this.health = this.maxHealth;
-    this.healthBars = level >= 3 ? Math.ceil(this.maxHealth / 2000) : 1; // 3阶段后每2000血一条血条
+    this.healthBars = level >= 4 ? Math.ceil(this.maxHealth / 2000) : 1; // 4阶段后每2000血一条血条
     
-    // 防御系统：中后期大幅加强
+    // 防御系统：第4阶段才开始上压力
     if (level === 1) {
-      this.defense = 0.2; // 1级20%
+      this.defense = 0.15; // 1级15%（降低）
     } else if (level === 2) {
-      this.defense = 0.25; // 2级25%
+      this.defense = 0.2; // 2级20%
     } else if (level === 3) {
-      this.defense = 0.35; // 3级35%（提升）
-    } else if (level <= 5) {
-      this.defense = 0.4 + (level - 4) * 0.05; // 4-5级：40%-45%
+      this.defense = 0.25; // 3级25%
+    } else if (level <= 6) {
+      this.defense = 0.3 + (level - 4) * 0.05; // 4-6级：30%-40%
     } else {
-      // 6级以后防御大幅提升，最高90%
-      this.defense = Math.min(0.5 + (level - 6) * 0.08, 0.9);
+      // 7级以后防御大幅提升，最高90%
+      this.defense = Math.min(0.45 + (level - 7) * 0.08, 0.9);
     }
     
     this.lastAttackTime = 0;
@@ -1969,12 +1971,12 @@ function gameLoop(currentTime) {
   }
 
   // Boss 存在时也生成普通敌机（仅在游戏正式开始后）
-  // 中后期增加敌机生成，中期（3-6级Boss）增加50%，后期（7级+）增加100%
+  // 4阶段才开始增加敌机，7阶段开始大幅增加
   let enemySpawnMultiplier = config.enemyCountMultiplier;
   if (bossLevel >= 7) {
-    enemySpawnMultiplier *= 2; // 后期敌机翻倍
-  } else if (bossLevel >= 3) {
-    enemySpawnMultiplier *= 1.5; // 中期敌机增加50%
+    enemySpawnMultiplier *= 2; // 7阶段后敌机翻倍
+  } else if (bossLevel >= 4) {
+    enemySpawnMultiplier *= 1.5; // 4阶段后敌机增加50%
   }
   
   const effectiveSpawnRate = config.enemySpawnRate * enemySpawnMultiplier * (currentBoss ? 0.5 : 1);
