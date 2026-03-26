@@ -1161,10 +1161,10 @@ class SlowZone {
   }
   
   applySlowEffect(player) {
-    // 触发减速效果：3秒内飞机移动速度大幅降低
+    // 触发减速效果：4秒内飞机移动速度大幅降低
     playerSlowEffect.active = true;
-    playerSlowEffect.endTime = performance.now() + 3000;
-    playerSlowEffect.speedMultiplier = 0.2; // 改为0.2，速度降低到20%，更明显
+    playerSlowEffect.endTime = performance.now() + 4000;
+    playerSlowEffect.speedMultiplier = 0.08; // 改为0.08，速度降低到8%，几乎停滞
     
     // 减速特效
     for (let i = 0; i < 15; i++) {
@@ -2017,7 +2017,7 @@ function renderPauseScreen() {
   });
 
   // 生成减速区域（偶尔出现，仅在游戏正式开始后）
-  if (gameOfficiallyStarted && Math.random() < 0.0003 && slowZones.length < 2) {
+  if (gameOfficiallyStarted && Math.random() < 0.001 && slowZones.length < 2) {
     slowZones.push(new SlowZone());
   }
 
