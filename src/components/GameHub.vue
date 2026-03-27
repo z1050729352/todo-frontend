@@ -1,7 +1,47 @@
 <script setup>
 import { ref } from 'vue';
 
-const emit = defineEmits(['selectGame', 'viewLeaderboard']);
+const props = defineProps({
+  playerName: {
+    type: String,
+    default: ''
+  },
+  isGuest: {
+    type: Boolean,
+    default: false
+  }
+});
+
+const emit = defineEmits(['selectGame', 'logout']);
+
+const showEncyclopedia = ref(false);
+
+const ammoData = [
+  {
+    type: 'burst',
+    name: '爆裂弹',
+    symbol: '🔥',
+    color: '#FF8000',
+    description: '发射具有抛物线轨迹的能量球，命中时触发环形冲击波，适合对付集群敌人。',
+    traits: ['抛物线弹道', '范围爆炸', '高伤害']
+  },
+  {
+    type: 'explosive',
+    name: '爆炸弹',
+    symbol: '💣',
+    color: '#333',
+    description: '黑色金属弹体，尾焰呈现摇摆轨迹。命中后产生巨大的蘑菇云特效，威力惊人。',
+    traits: ['S型摇摆尾焰', '闪烁警告', '单点重伤']
+  },
+  {
+    type: 'laser',
+    name: '激光束',
+    symbol: '⚡',
+    color: '#00FFFF',
+    description: '瞬发蓝色电浆光束，伴有随机电弧。穿透力极强，能瞬间贯穿敌阵。',
+    traits: ['瞬发命中', '电弧特效', '持续贯穿']
+  }
+];
 
 const games = [
   {
@@ -58,19 +98,31 @@ function selectGame(game) {
   }
 }
 
-function viewLeaderboard() {
-  emit('viewLeaderboard');
+function handleLogout() {
+  emit('logout');
 }
 </script>
 
 <template>
   <div class="game-hub">
+    <!-- 左上角图鉴入口 -->
+    <div class="encyclopedia-trigger" @click="showEncyclopedia = true">
+      <span class="pulse-icon">📜</span>
+      <span class="trigger-text">弹药图鉴</span>
+    </div>
+
+    <div v-if="!isGuest" class="user-profile">
+      <span class="welcome-text">欢迎, {{ playerName }}</span>
+      <button class="logout-btn" @click="handleLogout">登出</button>
+    </div>
+    
+    <!-- 游客返回按钮 -->
+    <div v-else class="user-profile guest-back" @click="handleLogout">
+      <span class="welcome-text">退出游客模式</span>
+    </div>
     <div class="hub-header">
-      <h1 class="hub-title">🎮 游戏中心</h1>
+      <h1 class="hub-title">� 游戏中心</h1>
       <p class="hub-subtitle">选择你喜欢的游戏开始挑战</p>
-      <button class="leaderboard-btn" @click="viewLeaderboard">
-        🏆 排行榜
-      </button>
     </div>
 
     <div class="games-container">
@@ -107,29 +159,261 @@ function viewLeaderboard() {
     <div class="hub-footer">
       <p>更多游戏持续更新中...</p>
     </div>
+
+    <!-- 弹药图鉴 Modal -->
+    <div v-if="showEncyclopedia" class="modal-overlay" @click.self="showEncyclopedia = false">
+      <div class="encyclopedia-modal">
+        <div class="modal-header">
+          <h2>弹药百科全书</h2>
+          <button class="close-btn" @click="showEncyclopedia = false">×</button>
+        </div>
+        
+        <div class="ammo-grid">
+          <div v-for="ammo in ammoData" :key="ammo.type" class="ammo-card">
+            <div class="ammo-visual" :style="{ background: ammo.color }">
+              <span class="ammo-symbol">{{ ammo.symbol }}</span>
+            </div>
+            <div class="ammo-info">
+              <h3>{{ ammo.name }}</h3>
+              <p class="ammo-desc">{{ ammo.description }}</p>
+              <div class="traits">
+                <span v-for="trait in ammo.traits" :key="trait" class="trait-tag">{{ trait }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-box">
+          <p>⚠️ <strong>等级规则</strong>: 切换弹药时，当前弹药等级将 <strong>-1</strong></p>
+          <p>🛡️ <strong>减益效果</strong>: 
+            <span class="debuff">减速 -25% (3s)</span>
+            <span class="debuff">攻击力 -20% (5s)</span>
+          </p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.user-profile {
+  position: absolute;
+  top: 25px;
+  right: 25px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 8px 16px;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  transition: all 0.3s ease;
+}
+
+.user-profile:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.welcome-text {
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.logout-btn {
+  background: linear-gradient(135deg, #ff4b2b 0%, #ff416c 100%);
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 15px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(255, 75, 43, 0.3);
+}
+
+.logout-btn:hover {
+  background: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(255, 75, 43, 0.5);
+}
+
 .game-hub {
   width: 100%;
   height: 100vh;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #1a1a1a; /* 深灰背景，赛博朋克风 */
   padding: 20px;
-  padding-bottom: 40px; /* 底部留白 */
   overflow-y: auto;
   overflow-x: hidden;
-  -webkit-overflow-scrolling: touch; /* iOS平滑滚动 */
   display: flex;
   flex-direction: column;
   align-items: center;
   position: relative;
 }
 
+/* 图鉴入口 */
+.encyclopedia-trigger {
+  position: absolute;
+  top: 25px;
+  left: 25px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: rgba(0, 255, 255, 0.15);
+  border: 1px solid #00FFFF;
+  border-radius: 24px;
+  color: #00FFFF;
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.3s;
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+.encyclopedia-trigger:hover {
+  background: rgba(0, 255, 255, 0.3);
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+  transform: scale(1.05);
+}
+
+.pulse-icon {
+  font-size: 20px;
+  animation: icon-pulse 2s infinite;
+}
+
+@keyframes icon-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* Modal 样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+}
+
+.encyclopedia-modal {
+  width: 90%;
+  max-width: 800px;
+  background: #1a1a1a;
+  border: 2px solid #00FFFF;
+  border-radius: 20px;
+  padding: 30px;
+  position: relative;
+  box-shadow: 0 0 40px rgba(0, 255, 255, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.modal-header h2 {
+  color: #00FFFF;
+  font-size: 1.8rem;
+  margin: 0;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  cursor: pointer;
+}
+
+.ammo-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.ammo-card {
+  display: flex;
+  gap: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  border-radius: 15px;
+  border: 1px solid rgba(0, 255, 255, 0.1);
+}
+
+.ammo-visual {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  flex-shrink: 0;
+}
+
+.ammo-info h3 {
+  color: #fff;
+  margin: 0 0 10px 0;
+}
+
+.ammo-desc {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.trait-tag {
+  background: rgba(0, 255, 255, 0.1);
+  color: #00FFFF;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  margin-right: 8px;
+  border: 1px solid rgba(0, 255, 255, 0.2);
+}
+
+.rule-box {
+  margin-top: 30px;
+  padding: 20px;
+  background: rgba(255, 128, 0, 0.05);
+  border: 1px dashed #FF8000;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 0.9rem;
+}
+
+.debuff {
+  display: inline-block;
+  color: #ff4757;
+  margin-right: 15px;
+}
+
 .hub-header {
   text-align: center;
-  margin-bottom: 30px;
+  margin-top: 60px; /* 增加顶部间距，避免被右上角遮挡 */
+  margin-bottom: 40px;
   position: relative;
   width: 100%;
   max-width: 600px;
@@ -148,30 +432,6 @@ function viewLeaderboard() {
   color: rgba(255, 255, 255, 0.9);
   margin-bottom: 20px;
   animation: fadeInDown 0.6s ease-out 0.1s backwards;
-}
-
-.leaderboard-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 25px;
-  font-size: 1rem;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  animation: fadeInDown 0.6s ease-out 0.2s backwards;
-}
-
-.leaderboard-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
-}
-
-.leaderboard-btn:active {
-  transform: translateY(0);
 }
 
 .games-container {
@@ -371,16 +631,28 @@ function viewLeaderboard() {
 }
 
 @media (max-width: 480px) {
+  .user-profile {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    margin-bottom: 0;
+    padding: 6px 12px;
+  }
+
   .game-hub {
     padding: 15px;
-    /* 确保可以滚动 */
     height: 100vh;
     overflow-y: scroll;
     -webkit-overflow-scrolling: touch;
   }
 
+  .hub-header {
+    margin-top: 80px; /* 移动端给予更多顶部空间 */
+    margin-bottom: 25px;
+  }
+
   .hub-title {
-    font-size: 2rem;
+    font-size: 2.2rem;
   }
 
   .game-card {

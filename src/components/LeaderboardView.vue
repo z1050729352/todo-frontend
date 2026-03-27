@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
+import { getAuthData } from '../utils/auth';
 
 const emit = defineEmits(['back']);
 
@@ -17,8 +18,12 @@ async function fetchLeaderboard() {
   loading.value = true;
   error.value = '';
   try {
+    const authData = getAuthData();
+    const headers = authData?.token ? { 'Authorization': `Bearer ${authData.token}` } : {};
+    
     const response = await api.get('/scores', {
-      params: { difficulty: difficulty.value }
+      params: { difficulty: difficulty.value },
+      headers
     });
     leaderboard.value = response.data;
   } catch (err) {

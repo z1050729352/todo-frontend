@@ -1,9 +1,19 @@
 <script setup>
 import { ref } from 'vue';
 
-const emit = defineEmits(['start', 'back']);
+const props = defineProps({
+  playerName: {
+    type: String,
+    default: ''
+  },
+  isGuest: {
+    type: Boolean,
+    default: false
+  }
+});
 
-const playerName = ref('');
+const emit = defineEmits(['start', 'back', 'viewLeaderboard']);
+
 const difficulty = ref('medium');
 const showGuide = ref(false); // 显示武器指南
 const weaponDetail = ref(null); // 显示武器详情
@@ -54,11 +64,8 @@ const weaponDetails = {
 };
 
 function handleStart() {
-  if (!playerName.value.trim()) {
-    alert('请输入玩家名称');
-    return;
-  }
-  emit('start', playerName.value.trim(), difficulty.value);
+  // 直接使用props中的playerName，不再需要手动输入
+  emit('start', difficulty.value);
 }
 
 function goBack() {
@@ -77,26 +84,31 @@ function showWeaponDetail(weaponType) {
 function closeWeaponDetail() {
   weaponDetail.value = null;
 }
+
+function viewLeaderboard() {
+  emit('viewLeaderboard');
+}
 </script>
 
 <template>
   <div class="game-start">
     <div class="stars"></div>
     <div class="content">
-      <button class="back-btn" @click="goBack">← 返回</button>
+      <div class="header-actions">
+        <button class="back-btn" @click="goBack">← 返回</button>
+        <button 
+          v-if="!isGuest"
+          class="leaderboard-btn" 
+          @click="viewLeaderboard"
+        >
+          🏆 排行榜
+        </button>
+      </div>
       <h1 class="title">✈️ 飞机大战</h1>
+      <div class="player-info">
+        <span>飞行员: {{ playerName }}</span>
+      </div>
       <div class="form">
-        <div class="input-group">
-          <label>玩家名称</label>
-          <input 
-            v-model="playerName" 
-            type="text" 
-            placeholder="请输入你的名字"
-            maxlength="20"
-            @keyup.enter="handleStart"
-          />
-        </div>
-        
         <div class="difficulty-group">
           <label>选择难度</label>
           <div class="difficulty-options">
@@ -293,7 +305,14 @@ function closeWeaponDetail() {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
-.back-btn {
+.header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.back-btn, .leaderboard-btn {
   background: rgba(255, 255, 255, 0.2);
   border: none;
   color: #fff;
@@ -302,12 +321,11 @@ function closeWeaponDetail() {
   font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.3s ease;
-  margin-bottom: 1rem;
 }
 
-.back-btn:hover {
+.back-btn:hover, .leaderboard-btn:hover {
   background: rgba(255, 255, 255, 0.3);
-  transform: translateX(-3px);
+  transform: translateY(-2px);
 }
 
 .content::-webkit-scrollbar {
@@ -327,8 +345,19 @@ function closeWeaponDetail() {
   font-size: 2.5rem;
   color: #fff;
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+}
+
+.player-info {
+  text-align: center;
+  color: #4a9eff;
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin-bottom: 2rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem;
+  border-radius: 10px;
 }
 
 .form {

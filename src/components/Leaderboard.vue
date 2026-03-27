@@ -1,12 +1,17 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import axios from 'axios';
+import { getAuthData } from '../utils/auth';
 
 const props = defineProps({
   playerName: String,
   score: Number,
   difficulty: String,
-  isVictory: Boolean
+  isVictory: Boolean,
+  isGuest: {
+    type: Boolean,
+    default: false
+  }
 });
 
 const emit = defineEmits(['restart', 'backToHub']);
@@ -27,17 +32,29 @@ const difficultyLabels = {
 };
 
 async function saveScore() {
+  if (props.isGuest) {
+    console.log('游客模式，跳过分数保存');
+    return;
+  }
   try {
+    const authData = getAuthData();
+    if (!authData?.token) {
+      console.error('No auth token found');
+      return;
+    }
+
     console.log('正在保存分数...', {
-      playerName: props.playerName,
       score: props.score,
       difficulty: props.difficulty
     });
     
     const response = await api.post('/scores', {
-      playerName: props.playerName,
       score: props.score,
       difficulty: props.difficulty
+    }, {
+      headers: {
+        'Authorization': `Bearer ${authData.token}`
+      }
     });
     
     console.log('分数保存成功:', response.data);
@@ -141,9 +158,13 @@ onMounted(async () => {
           <span class="result-label">得分</span>
           <span class="result-value score">{{ score }}</span>
         </div>
-        <div v-if="!loading && currentRank" class="result-item">
+        <div v-if="!isGuest && !loading && currentRank" class="result-item">
           <span class="result-label">排名</span>
           <span class="result-value rank">第 {{ currentRank }} 名</span>
+        </div>
+        <div v-else-if="isGuest" class="result-item">
+          <span class="result-label">提示</span>
+          <span class="result-value" style="font-size: 0.9rem; opacity: 0.8;">登录后即可参与全球排行！</span>
         </div>
       </div>
 
