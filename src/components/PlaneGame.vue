@@ -707,18 +707,20 @@ class Bullet {
     ctx.rotate(this.angle);
 
     if (this.bulletType === 'laser') {
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 10;
       ctx.shadowColor = '#00FFFF';
-      ctx.fillStyle = '#00FFFF';
+      
+      const grad = ctx.createLinearGradient(0, -this.height / 2, 0, this.height / 2);
+      grad.addColorStop(0, '#FFFFFF');
+      grad.addColorStop(0.2, '#00FFFF');
+      grad.addColorStop(1, 'rgba(0, 255, 255, 0.2)');
+      
+      ctx.fillStyle = grad;
       ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath();
-        ctx.moveTo(0, -this.height / 2);
-        ctx.lineTo((Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20);
-        ctx.stroke();
-      }
+      
+      // 移除高开销的电弧绘制，改为简单的核心高光
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(-this.width / 4, -this.height / 2, this.width / 2, this.height / 3);
     } else if (this.bulletType === 'burst') {
       const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, this.width / 2);
       grad.addColorStop(0, '#FFFFFF');
@@ -1807,6 +1809,9 @@ function setCanvasSize() {
 }
 
 function createExplosion(x, y, color) {
+  // 限制同时存在的粒子数量，如果已经很多就不再生成，防止崩溃
+  if (particles.length > MAX_PARTICLES - 15) return;
+  
   for (let i = 0; i < 15; i++) {
     particles.push(new Particle(x, y, color));
   }
@@ -2185,7 +2190,7 @@ function renderPauseScreen() {
 }
 
 function gameLoop(currentTime) {
-  if (!gameRunning) return;
+  if (!gameRunning && !victoryEffect.active) return;
   
   // 如果暂停，显示暂停界面但停止游戏逻辑
   if (isPaused) {
@@ -2197,7 +2202,9 @@ function gameLoop(currentTime) {
   
   // 立即检查血量，优先级最高
   if (health.value <= 0) {
-    endGame();
+    if (gameRunning) {
+      endGame();
+    }
     return;
   }
 
@@ -2273,7 +2280,20 @@ function gameLoop(currentTime) {
   
   // 绘制防护罩
   if (barrier.active && barrier.health > 0) {
-    new Barrier().draw();
+    // 实例化新的防护罩逻辑在这里有严重的性能问题，每次循环都 new，需要修复为单例或静态绘制
+    // 这里简单绘制防护罩即可
+    if (player) {
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + Math.sin(currentTime * 0.005) * 0.3})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, player.width / 2 + 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+      ctx.fill();
+      ctx.restore();
+    }
   }
   
   // 游戏开始特效期间不绘制玩家
@@ -2401,7 +2421,7 @@ function gameLoop(currentTime) {
 
     for (let i = bullets.length - 1; i >= 0; i--) {
       const bullet = bullets[i];
-      if (!bullet || !currentBoss) continue; // 检查currentBoss是否还存在
+      if (!bullet || !currentBoss) continue; 
       
       if (bullet.checkHit(currentBoss.x, currentBoss.y, 40)) {
         
@@ -2439,7 +2459,6 @@ function gameLoop(currentTime) {
         // 添加伤害指示
         damageIndicators.push(new DamageIndicator(bullet.x, bullet.y, actualDamage, isCrit));
         createExplosion(currentBoss.x, currentBoss.y, isCrit ? '#FF8000' : '#ffeb3b');
-        triggerShake(isCrit ? 15 : 8, 200); // 震动反馈
         
         // 处理子弹穿透/移除
         if (bullet.pierce && bullet.pierceCount < bullet.maxPierce) {
@@ -2448,7 +2467,7 @@ function gameLoop(currentTime) {
           bullets.splice(i, 1);
         }
         
-        if (currentBoss.health <= 0) {
+        if (currentBoss && currentBoss.health <= 0) {
           const bossScore = Math.floor((100 + currentBoss.level * 50) * getScoreMultiplier());
           score.value += bossScore;
           
@@ -2467,7 +2486,10 @@ function gameLoop(currentTime) {
           
           if (sounds.bossDefeat) sounds.bossDefeat();
           createExplosion(currentBoss.x, currentBoss.y, currentBoss.color);
-          for (let j = 0; j < 30; j++) {
+          
+          // 限制爆炸粒子数量，防止生成过多卡死
+          const particleCount = Math.min(30, MAX_PARTICLES - particles.length);
+          for (let j = 0; j < particleCount; j++) {
             particles.push(new Particle(currentBoss.x, currentBoss.y, '#ffeb3b'));
           }
           
@@ -2559,7 +2581,6 @@ function gameLoop(currentTime) {
           const enemyScore = Math.floor((10 + enemy.level * 10) * getScoreMultiplier());
           score.value += enemyScore;
           createExplosion(enemy.x, enemy.y, enemy.color);
-          triggerShake(5, 100); // 普通敌机爆炸微震
           if (sounds.explosion) sounds.explosion();
           return false;
         } else {
@@ -2579,7 +2600,7 @@ function gameLoop(currentTime) {
         triggerShake(12, 150); // 玩家受击震动
         if (health.value <= 0) {
           endGame();
-          return true; // 保持敌机，但立即停止游戏
+          return false;
         }
       }
       return false;
@@ -2599,7 +2620,7 @@ function gameLoop(currentTime) {
         triggerDamageFlash(); // 触发掉血特效
         if (health.value <= 0) {
           endGame();
-          return true; // 保持敌机，但立即停止游戏
+          return false;
         }
       }
       return false;
@@ -2627,7 +2648,7 @@ function gameLoop(currentTime) {
         createExplosion(bullet.x, bullet.y, '#ff0066');
         if (health.value <= 0) {
           endGame();
-          return true; // 保持子弹，但立即停止游戏
+          return false;
         }
       }
       return false;
@@ -2656,27 +2677,26 @@ function gameLoop(currentTime) {
 }
 
 function endGame(victory = false) {
-  if (!gameRunning && !victory) return; 
+  if (!gameRunning) return; 
+  gameRunning = false;
+  isTouching = false;
+
   if (sounds.stopBGM) sounds.stopBGM();
   
   if (!victory) {
-    // 失败时立即停止
-    gameRunning = false;
-    isTouching = false;
-    
     if (animationId) {
       cancelAnimationFrame(animationId);
       animationId = null;
     }
-    
     const finalScoreValue = Math.floor(score.value * (1 + gameTime.value * 0.01));
     emit('gameOver', finalScoreValue, victory);
   } else {
     // 通关时继续运行以显示特效，5 秒后再结束
-    gameRunning = false;
-    isTouching = false;
-    
     setTimeout(() => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
       const finalScoreValue = Math.floor(score.value * (1 + gameTime.value * 0.01));
       emit('gameOver', finalScoreValue, victory);
     }, 5000);
