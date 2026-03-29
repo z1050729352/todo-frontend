@@ -10,8 +10,10 @@ const leaderboard = ref([]);
 const loading = ref(false);
 const error = ref('');
 
+const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:12580/api'
+  baseURL: apiBaseUrl
 });
 
 async function fetchLeaderboard() {

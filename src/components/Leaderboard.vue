@@ -16,8 +16,10 @@ const props = defineProps({
 
 const emit = defineEmits(['restart', 'backToHub']);
 
+const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:12580/api'
+  baseURL: apiBaseUrl
 });
 
 const leaderboard = ref([]);

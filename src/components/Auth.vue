@@ -4,6 +4,8 @@ import { setAuthData } from '../utils/auth';
 
 const emit = defineEmits(['loginSuccess', 'guestAccess']);
 
+const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
+
 const isLoginMode = ref(true);
 const username = ref('');
 const password = ref('');
@@ -26,7 +28,7 @@ const validateUsername = async () => {
     return;
   }
   try {
-    const res = await fetch(`http://localhost:12580/api/auth/check-username?username=${username.value}`);
+    const res = await fetch(`${apiBaseUrl}/auth/check-username?username=${encodeURIComponent(username.value)}`);
     const data = await res.json();
     if (data.exists) {
       usernameError.value = '账号已被注册';
@@ -62,8 +64,8 @@ const handleSubmit = async () => {
   }
 
   const url = isLoginMode.value 
-    ? 'http://localhost:12580/api/auth/login' 
-    : 'http://localhost:12580/api/auth/register';
+    ? `${apiBaseUrl}/auth/login` 
+    : `${apiBaseUrl}/auth/register`;
 
   try {
     const res = await fetch(url, {
@@ -86,7 +88,7 @@ const handleSubmit = async () => {
     // 如果是注册成功，直接调用登录获取token，或者在注册接口里其实可以顺便返回token
     // 但根据需求"注册完自动登录"，这里如果是注册，可以用相同的账号密码自动请求一次login
     if (!isLoginMode.value) {
-      const loginRes = await fetch('http://localhost:12580/api/auth/login', {
+      const loginRes = await fetch(`${apiBaseUrl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username.value, password: password.value })
