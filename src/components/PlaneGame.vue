@@ -1499,39 +1499,7 @@ class Particle {
   }
 }
 
-class Barrier {
-  draw() {
-    if (!barrier.active || barrier.health <= 0) return;
-    
-    const y = canvas.value.height - 30;
-    const healthPercent = barrier.health / barrier.maxHealth;
-    
-    // 防护罩线
-    ctx.strokeStyle = `rgba(121, 85, 72, ${0.3 + healthPercent * 0.4})`;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(canvas.value.width, y);
-    ctx.stroke();
-    
-    // 能量点
-    for (let i = 0; i < canvas.value.width; i += 20) {
-      ctx.fillStyle = `rgba(255, 152, 0, ${0.5 + Math.sin(Date.now() * 0.01 + i) * 0.3})`;
-      ctx.beginPath();
-      ctx.arc(i, y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    
-    // 显示防护罩血量
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.fillRect(10, y - 25, 60, 15);
-    
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'left';
-    ctx.fillText(`墙 ${barrier.health}/${barrier.maxHealth}`, 15, y - 13);
-  }
-}
+
 
 let touchX = 0;
 let touchY = 0;
@@ -2278,22 +2246,48 @@ function gameLoop(currentTime) {
     player.moveTo(touchX, touchY);
   }
   
-  // 绘制防护罩
-  if (barrier.active && barrier.health > 0) {
-    // 实例化新的防护罩逻辑在这里有严重的性能问题，每次循环都 new，需要修复为单例或静态绘制
-    // 这里简单绘制防护罩即可
-    if (player) {
-      ctx.save();
-      ctx.translate(player.x, player.y);
-      ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + Math.sin(currentTime * 0.005) * 0.3})`;
-      ctx.lineWidth = 3;
+  // 绘制防护墙（墙道具：飞机后方固定偏移）
+  if (barrier.active && barrier.health > 0 && player) {
+    const wallY = player.y + 45; // 飞机后方固定偏移
+    const wallWidth = 80;
+    const wallHeight = 15;
+    
+    ctx.save();
+    ctx.translate(player.x, wallY);
+    
+    // 墙体发光效果
+    ctx.shadowColor = '#795548';
+    ctx.shadowBlur = 10;
+    
+    // 根据生命值改变颜色透明度
+    const healthPercent = barrier.health / barrier.maxHealth;
+    ctx.fillStyle = `rgba(121, 85, 72, ${0.4 + healthPercent * 0.6})`;
+    ctx.strokeStyle = '#ff9800';
+    ctx.lineWidth = 2;
+    
+    // 绘制圆角矩形墙体 (使用兼容性更好的普通矩形或手动绘制圆角)
+    ctx.beginPath();
+    ctx.rect(-wallWidth/2, -wallHeight/2, wallWidth, wallHeight);
+    ctx.fill();
+    ctx.stroke();
+    
+    // 能量节点效果
+    for (let i = -1; i <= 1; i++) {
+      ctx.fillStyle = `rgba(255, 152, 0, ${0.5 + Math.sin(currentTime * 0.01 + i) * 0.5})`;
       ctx.beginPath();
-      ctx.arc(0, 0, player.width / 2 + 15, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+      ctx.arc(i * 20, 0, 3, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
+    
+    // 显示生命值
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${barrier.health}/${barrier.maxHealth}`, 0, 0);
+    
+    ctx.restore();
   }
   
   // 游戏开始特效期间不绘制玩家
@@ -2606,22 +2600,31 @@ function gameLoop(currentTime) {
       return false;
     }
 
-    if (enemy.y > canvas.value.height) {
-      // 检查防护罩
-      if (barrier.active && barrier.health > 0) {
+    // 检查墙道具（屏障实体）碰撞
+    if (barrier.active && barrier.health > 0 && player) {
+      const wallY = player.y + 45;
+      const wallWidth = 80;
+      const wallHeight = 15;
+      
+      if (Math.abs(enemy.x - player.x) < wallWidth / 2 + 15 && 
+          Math.abs(enemy.y - wallY) < wallHeight / 2 + 15) {
+        
         barrier.health--;
-        if (barrier.health <= 0) {
-          barrier.active = false;
-        }
-      } else {
-        const penalty = Math.floor(5 * getScoreMultiplier());
-        score.value = Math.max(0, score.value - penalty);
-        health.value = Math.max(0, health.value - 5); // 扣血
-        triggerDamageFlash(); // 触发掉血特效
-        if (health.value <= 0) {
-          endGame();
-          return false;
-        }
+        if (barrier.health <= 0) barrier.active = false;
+        
+        createExplosion(enemy.x, enemy.y, '#795548');
+        return false; // 敌机撞墙销毁
+      }
+    }
+
+    if (enemy.y > canvas.value.height) {
+      const penalty = Math.floor(5 * getScoreMultiplier());
+      score.value = Math.max(0, score.value - penalty);
+      health.value = Math.max(0, health.value - 5); // 扣血
+      triggerDamageFlash(); // 触发掉血特效
+      if (health.value <= 0) {
+        endGame();
+        return false;
       }
       return false;
     }
@@ -2652,6 +2655,23 @@ function gameLoop(currentTime) {
         }
       }
       return false;
+    }
+
+    // 检查墙道具（屏障实体）碰撞
+    if (barrier.active && barrier.health > 0 && player) {
+      const wallY = player.y + 45;
+      const wallWidth = 80;
+      const wallHeight = 15;
+      
+      if (Math.abs(bullet.x - player.x) < wallWidth / 2 + bullet.radius && 
+          Math.abs(bullet.y - wallY) < wallHeight / 2 + bullet.radius) {
+        
+        barrier.health--;
+        if (barrier.health <= 0) barrier.active = false;
+        
+        createExplosion(bullet.x, bullet.y, '#795548');
+        return false; // 子弹被墙挡住销毁
+      }
     }
 
     return bullet.x > -20 && bullet.x < canvas.value.width + 20 && 
