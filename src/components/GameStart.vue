@@ -26,38 +26,38 @@ const difficulties = [
 
 const weaponDetails = {
   laser: {
-    name: '激光',
-    icon: '光',
-    color: '#9c27b0',
-    description: '发射长条激光线，穿透力强',
+    name: '激光束',
+    icon: '⚡',
+    color: '#00FFFF',
+    description: '瞬发蓝色电浆光束，伴有随机电弧。穿透力极强，能瞬间贯穿敌阵。',
     features: [
       '攻击形态：长条激光线',
-      '基础伤害：3点',
-      '升级效果：每级+1伤害',
+      '瞬发命中，无弹道延迟',
+      '附带电弧特效，持续贯穿',
       '特点：攻击范围大，适合清理密集敌人'
     ]
   },
   burst: {
-    name: '爆裂',
-    icon: '裂',
-    color: '#00bcd4',
-    description: '发射能量球，等级越高球越大',
+    name: '爆裂弹',
+    icon: '🔥',
+    color: '#FF8000',
+    description: '发射具有抛物线轨迹的能量球，命中时触发环形冲击波，适合对付集群敌人。',
     features: [
-      '攻击形态：能量球',
-      '基础伤害：2点',
-      '升级效果：每级+1伤害，球体变大',
+      '抛物线弹道',
+      '范围爆炸，引发环形冲击波',
+      '高伤害',
       '特点：攻击范围随等级增长'
     ]
   },
   explosive: {
-    name: '爆炸',
-    icon: '爆',
-    color: '#ff9800',
-    description: '击中后产生范围爆炸伤害',
+    name: '爆炸弹',
+    icon: '💣',
+    color: '#333333',
+    description: '黑色金属弹体，尾焰呈现摇摆轨迹。命中后产生巨大的蘑菇云特效，威力惊人。',
     features: [
-      '攻击形态：爆炸弹',
-      '基础伤害：2点',
-      '升级效果：每级+1伤害，爆炸范围+10',
+      'S型摇摆尾焰',
+      '闪烁警告',
+      '单点重伤，蘑菇云特效',
       '特点：范围伤害，适合群体攻击'
     ]
   }
@@ -170,16 +170,16 @@ function viewLeaderboard() {
           <p class="guide-note">只能拥有一种，切换会重置等级</p>
           <div class="weapon-grid">
             <div class="weapon-item clickable" @click="showWeaponDetail('laser')">
-              <span class="weapon-icon" style="background: #9c27b0;">光</span>
-              <span>激光</span>
+              <span class="weapon-icon" style="background: #00FFFF; color: #000;">⚡</span>
+              <span>激光束</span>
             </div>
             <div class="weapon-item clickable" @click="showWeaponDetail('burst')">
-              <span class="weapon-icon" style="background: #00bcd4;">裂</span>
-              <span>爆裂</span>
+              <span class="weapon-icon" style="background: #FF8000;">🔥</span>
+              <span>爆裂弹</span>
             </div>
             <div class="weapon-item clickable" @click="showWeaponDetail('explosive')">
-              <span class="weapon-icon" style="background: #ff9800;">爆</span>
-              <span>爆炸</span>
+              <span class="weapon-icon" style="background: #333;">💣</span>
+              <span>爆炸弹</span>
             </div>
           </div>
           <p class="example">例：光3 → 吃到裂 → 裂1</p>

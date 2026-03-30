@@ -2,6 +2,8 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import html2canvas from 'html2canvas';
 
+import { getSocket } from '../socket';
+
 const props = defineProps({
   playerName: {
     type: String,
@@ -14,6 +16,14 @@ const props = defineProps({
   isGuest: {
     type: Boolean,
     default: false
+  },
+  isMultiplayer: {
+    type: Boolean,
+    default: false
+  },
+  roomData: {
+    type: Object,
+    default: null
   }
 });
 
@@ -75,6 +85,13 @@ let lastTime = 0;
 let mapOffset = 0;
 const mapSpeed = 0.5;
 
+let rngSeed = Date.now();
+function seededRandom() {
+  rngSeed = (rngSeed * 9301 + 49297) % 233280;
+  return rngSeed / 233280;
+}
+const random = seededRandom;
+
 const difficultyConfig = {
   easy: { 
     enemySpeed: 2, 
@@ -97,14 +114,14 @@ const difficultyConfig = {
     enemyCountMultiplier: 1
   },
   hard: { 
-    enemySpeed: 5, 
-    enemySpawnRate: 0.025, 
-    bulletSpeed: 8, 
-    bossAttackMultiplier: 1.5, 
-    bossHealPercent: 15,
+    enemySpeed: 6.5, 
+    enemySpawnRate: 0.035, 
+    bulletSpeed: 10, 
+    bossAttackMultiplier: 2.0, 
+    bossHealPercent: 10,
     powerUpRate: 0.0015,
-    initialFireRate: 180,
-    enemyCountMultiplier: 1
+    initialFireRate: 150,
+    enemyCountMultiplier: 1.5
   }
 };
 
@@ -360,7 +377,10 @@ function initSounds() {
 }
 
 let player = null;
+let player2 = null; // Multiplayer
 let bullets = [];
+let bulletPool = []; // Bullet Object Pool
+let otherPlayerBullets = []; // Bullets from the other player
 let enemies = [];
 let particles = [];
 let bossBullets = [];
@@ -385,17 +405,35 @@ const MAX_PARTICLES = 500; // 增加粒子上限以支持特效
 const MAX_ENEMIES = 30;
 const MAX_BOSS_BULLETS = 150;
 
-// 背景视差系统
+// 创建子弹 (对象池)
+function createBullet(x, y, type, level, spread, pierce, angle) {
+  let b;
+  if (bulletPool.length > 0) {
+    b = bulletPool.pop();
+    b.reset(x, y, type, level, spread, pierce, angle);
+  } else {
+    b = new Bullet(x, y, type, level, spread, pierce, angle);
+  }
+  bullets.push(b);
+}
+
+// 释放子弹
+function freeBullet(bullet) {
+  bullet.active = false;
+  if (bulletPool.length < 200) {
+    bulletPool.push(bullet);
+  }
+}
 class BackgroundLayer {
   constructor(speed, count, color, sizeRange) {
     this.speed = speed;
     this.elements = [];
     for (let i = 0; i < count; i++) {
       this.elements.push({
-        x: Math.random() * 800, // 初始宽度，会在 resize 后调整
-        y: Math.random() * 1000,
-        size: Math.random() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
-        opacity: Math.random() * 0.5 + 0.2
+        x: random() * 800, // 初始宽度，会在 resize 后调整
+        y: random() * 1000,
+        size: random() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
+        opacity: random() * 0.5 + 0.2
       });
     }
     this.color = color;
@@ -406,7 +444,7 @@ class BackgroundLayer {
       el.y += this.speed * (delta / 16.67);
       if (el.y > canvasHeight) {
         el.y = -20;
-        el.x = Math.random() * canvasWidth;
+        el.x = random() * canvasWidth;
       }
     });
   }
@@ -507,7 +545,7 @@ function drawHexagon(x, y, size) {
 function createExhaustParticles(x, y) {
   if (particles.length >= MAX_PARTICLES) return;
   for (let i = 0; i < 2; i++) {
-    particles.push(new Particle(x, y, '#00FFFF', 0.8 + Math.random() * 0.4, 'exhaust'));
+    createParticle(x, y, '#00FFFF', 0.8 + random() * 0.4, 'exhaust');
   }
 }
 
@@ -519,8 +557,8 @@ class DamageIndicator {
     this.amount = amount;
     this.isCrit = isCrit;
     this.life = 1.0;
-    this.vx = (Math.random() - 0.5) * 2;
-    this.vy = -2 - Math.random() * 2;
+    this.vx = (random() - 0.5) * 2;
+    this.vy = -2 - random() * 2;
   }
 
   update(delta) {
@@ -545,18 +583,24 @@ let damageIndicators = [];
 
 
 class Player {
-  constructor(x, y) {
+  constructor(x, y, isOther = false) {
     this.x = x;
     this.y = y;
     this.width = 40;
     this.height = 50;
     this.shield = 0;
-    this.rotation = 0; // 护盾旋转
+    this.rotation = 0; 
+    this.isOther = isOther;
   }
 
   draw() {
+    ctx.save();
+    if (this.isOther) {
+      ctx.globalAlpha = 0.5; // 其他玩家半透明
+    }
+
     // 引擎喷焰 (粒子)
-    if (Math.random() < 0.6) {
+    if (random() < 0.6 && !this.isOther) { // 其他玩家不生成粒子减少消耗
       createExhaustParticles(this.x, this.y + 20);
     }
 
@@ -572,11 +616,17 @@ class Player {
       ctx.restore();
     }
     
-    // 战机机身 (PBR 质感渐变)
+    // 战机机身
     const bodyGradient = ctx.createLinearGradient(this.x - 20, this.y, this.x + 20, this.y);
-    bodyGradient.addColorStop(0, '#1e3c72');
-    bodyGradient.addColorStop(0.5, '#2a5298');
-    bodyGradient.addColorStop(1, '#1e3c72');
+    if (this.isOther) {
+      bodyGradient.addColorStop(0, '#8b0000'); // 深红
+      bodyGradient.addColorStop(0.5, '#ff5252'); // 浅红
+      bodyGradient.addColorStop(1, '#8b0000');
+    } else {
+      bodyGradient.addColorStop(0, '#1e3c72');
+      bodyGradient.addColorStop(0.5, '#2a5298');
+      bodyGradient.addColorStop(1, '#1e3c72');
+    }
     
     ctx.fillStyle = bodyGradient;
     ctx.beginPath();
@@ -587,7 +637,7 @@ class Player {
     ctx.closePath();
     ctx.fill();
     
-    // 根据武器类型改变机翼颜色
+    // 根据武器类型改变机翼颜色 (这里假设对方的武器颜色默认或者同步)
     const bulletType = playerWeapon.value.bulletType;
     let wingColor = '#6bb6ff';
     if (bulletType === 'laser') wingColor = '#9c27b0';
@@ -602,6 +652,8 @@ class Player {
     ctx.beginPath();
     ctx.arc(this.x, this.y - 5, 6, 0, Math.PI * 2);
     ctx.fill();
+    
+    ctx.restore();
   }
 
   moveTo(targetX, targetY) {
@@ -669,8 +721,56 @@ class Bullet {
     
     this.pierce = pierceLevel > 0;
     this.pierceCount = 0;
-    this.maxPierce = Math.min(3 + pierceLevel, 10);
+    this.maxPierce = Math.min(3 + pierceLevel, 6); // max 6
     this.defenseIgnore = pierceLevel > 0 ? Math.min(0.3 + pierceLevel * 0.1, 0.9) : 0;
+    this.active = true;
+  }
+
+  // 对象池重置方法
+  reset(x, y, bulletType, bulletLevel, spreadLevel, pierceLevel, angle) {
+    this.x = x;
+    this.y = y;
+    this.startX = x;
+    this.startY = y;
+    this.bulletType = bulletType;
+    this.bulletLevel = Math.min(bulletLevel, 6); // max 6
+    this.spreadLevel = Math.min(spreadLevel, 6); // max 6
+    this.pierceLevel = Math.min(pierceLevel, 6); // max 6
+    this.angle = angle;
+    this.time = 0;
+    this.active = true;
+    
+    if (bulletType === 'laser') {
+      this.width = 4;
+      this.height = 80;
+      this.damage = 3 + this.bulletLevel;
+      this.hitRadius = 8;
+    } else if (bulletType === 'burst') {
+      this.width = 12 + this.bulletLevel * 2;
+      this.height = this.width;
+      this.damage = 2 + this.bulletLevel;
+      this.hitRadius = this.width / 2;
+      this.gravity = 0.2;
+      this.vx = Math.sin(angle) * this.speed;
+      this.vy = -Math.cos(angle) * this.speed;
+    } else if (bulletType === 'explosive') {
+      this.width = 10;
+      this.height = 14;
+      this.damage = 2 + this.bulletLevel;
+      this.hitRadius = 7;
+      this.swayFreq = 3;
+      this.swayAmp = 10;
+    } else {
+      this.width = 5;
+      this.height = 15;
+      this.damage = 1;
+      this.hitRadius = 5;
+    }
+    
+    this.pierce = this.pierceLevel > 0;
+    this.pierceCount = 0;
+    this.maxPierce = Math.min(3 + this.pierceLevel, 6); // max 6
+    this.defenseIgnore = this.pierceLevel > 0 ? Math.min(0.3 + this.pierceLevel * 0.1, 0.9) : 0;
   }
 
   update(delta) {
@@ -692,17 +792,20 @@ class Bullet {
       this.y -= Math.cos(this.angle) * this.speed;
     }
 
-    if (Math.random() < 0.4) {
+    if (random() < 0.4) {
       const color = this.bulletType === 'burst' ? '#FF8000' : 
                    (this.bulletType === 'laser' ? '#00FFFF' : '#FFFFFF');
       if (particles.length < MAX_PARTICLES) {
-        particles.push(new Particle(this.x, this.y, color, 0.5, 'trail'));
+        createParticle(this.x, this.y, color, 0.5, 'trail');
       }
     }
   }
 
   draw() {
     ctx.save();
+    if (this.isOther) {
+      ctx.globalAlpha = 0.5;
+    }
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
@@ -777,7 +880,7 @@ class Bullet {
         
         // 爆炸视觉效果
         for (let i = 0; i < 15; i++) {
-          particles.push(new Particle(this.x, this.y, '#ff9800'));
+          createParticle(this.x, this.y, '#ff9800');
         }
       }
     } catch (e) {
@@ -798,7 +901,7 @@ class Bullet {
 
 class Enemy {
   constructor(level = 1) {
-    this.x = Math.random() * (canvas.value.width - 40) + 20;
+    this.x = random() * (canvas.value.width - 40) + 20;
     this.y = -30;
     this.width = 35;
     this.height = 35;
@@ -807,10 +910,15 @@ class Enemy {
     // 敌机血量：4阶段开始翻3倍，7阶段后再翻
     let healthMultiplier = 1;
     if (bossLevel >= 7) {
-      healthMultiplier = 4.5; // 7阶段后敌机血量4.5倍
+      healthMultiplier = 4.5;
     } else if (bossLevel >= 4) {
-      healthMultiplier = 3; // 4阶段后敌机血量3倍
+      healthMultiplier = 3;
     }
+    
+    if (props.isMultiplayer) {
+      healthMultiplier *= 2; // Multiplayer double HP
+    }
+    
     this.maxHealth = level * 2 * healthMultiplier;
     this.health = this.maxHealth;
     
@@ -836,41 +944,45 @@ class Enemy {
     }
     
     // 根据等级设置敌机类型
+    // 动态难度加成（指数级增长）：每 60 秒增加一定难度
+    const timeMultiplier = Math.pow(1.05, Math.floor(gameTime.value / 60));
+    const dynamicSpeed = config.enemySpeed * timeMultiplier;
+    
     if (level === 1) {
       this.type = 'normal';
-      this.speed = config.enemySpeed + Math.random() * 1;
+      this.speed = dynamicSpeed + random() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
       this.shootPattern = 'single';
     } else if (level === 2) {
       this.type = 'fast';
-      this.speed = config.enemySpeed * 1.3 + Math.random() * 1;
+      this.speed = dynamicSpeed * 1.3 + random() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
       this.shootPattern = 'single';
     } else if (level === 3) {
       this.type = 'shooter';
-      this.speed = config.enemySpeed * 0.8;
-      this.horizontalSpeed = (Math.random() - 0.5) * 1.5;
+      this.speed = dynamicSpeed * 0.8;
+      this.horizontalSpeed = (random() - 0.5) * 1.5;
       this.pattern = 'zigzag';
       this.canShoot = true;
       this.shootPattern = 'single';
     } else if (level === 4) {
       this.type = 'heavy';
-      this.speed = config.enemySpeed * 0.6;
+      this.speed = dynamicSpeed * 0.6;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = true;
       this.shootPattern = 'double';
     } else {
       this.type = 'elite';
-      this.speed = config.enemySpeed * 0.7;
-      this.horizontalSpeed = (Math.random() - 0.5) * 2;
-      this.pattern = Math.random() < 0.5 ? 'zigzag' : 'sine';
+      this.speed = dynamicSpeed * 0.7;
+      this.horizontalSpeed = (random() - 0.5) * 2;
+      this.pattern = random() < 0.5 ? 'zigzag' : 'sine';
       this.canShoot = true;
-      this.shootPattern = Math.random() < 0.5 ? 'triple' : 'spread';
+      this.shootPattern = random() < 0.5 ? 'triple' : 'spread';
     }
     
     this.speed = Math.max(1.5, this.speed);
@@ -1026,6 +1138,11 @@ class Boss {
       healthGrowth *= 5;
     }
     
+    if (props.isMultiplayer) {
+      baseHealth *= 2;
+      healthGrowth *= 2;
+    }
+    
     this.maxHealth = baseHealth + healthGrowth;
     this.health = this.maxHealth;
     this.healthBars = level >= 4 ? Math.ceil(this.maxHealth / 2000) : 1; // 4阶段后每2000血一条血条
@@ -1125,9 +1242,9 @@ class Boss {
       
       // 绘制所有血条
       for (let i = 0; i < this.healthBars; i++) {
-        const currentBarY = startY + i * (barHeight + barSpacing);
-        const barHealth = Math.max(0, Math.min(this.health - i * 2000, 2000));
-        const barHealthPercent = barHealth / 2000;
+          const currentBarY = startY + i * (barHeight + barSpacing);
+          const barHealth = Math.max(0, Math.min(this.health - i * 2000, 2000));
+          const barHealthPercent = barHealth / 2000;
         
         ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
         ctx.fillRect(barX, currentBarY, barWidth, barHeight);
@@ -1171,8 +1288,10 @@ class Boss {
     }
     
     // 根据类型调整移动速度
-    const speed = this.attackType === 'small-fast' ? this.moveSpeed : 
+    const timeMultiplier = Math.pow(1.05, Math.floor(gameTime.value / 60)); // 动态难度加成
+    const baseSpeed = this.attackType === 'small-fast' ? this.moveSpeed : 
                   this.attackType === 'buff' ? this.moveSpeed : 2;
+    const speed = baseSpeed * timeMultiplier;
     
     this.x += this.moveDirection * speed;
     if (this.x < 50 || this.x > canvas.value.width - 50) {
@@ -1226,8 +1345,8 @@ class Boss {
       const centerX = canvas.value.width / 2;
       const spreadWidth = canvas.value.width / 2; // 覆盖屏幕一半宽度
       for (let i = 0; i < bulletCount; i++) {
-        const randomX = centerX + (Math.random() - 0.5) * spreadWidth;
-        const randomAngle = Math.PI / 2 + (Math.random() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
+        const randomX = centerX + (random() - 0.5) * spreadWidth;
+        const randomAngle = Math.PI / 2 + (random() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
         bossBullets.push(new BossBullet(randomX, -20, randomAngle, this.damage, 6));
       }
     } else if (this.attackType === 'small-fast') {
@@ -1309,7 +1428,7 @@ class BossBullet {
 
 class PowerUp {
   constructor(type) {
-    this.x = Math.random() * (canvas.value.width - 40) + 20;
+    this.x = random() * (canvas.value.width - 40) + 20;
     this.y = -30;
     this.type = type;
     this.speed = 2;
@@ -1347,7 +1466,7 @@ class PowerUp {
 function getEnemyLevel() {
   // 根据Boss等级决定敌机等级分布
   const level = bossLevel;
-  const rand = Math.random();
+  const rand = random();
   
   if (level === 1) return 1;
   if (level === 2) return rand < 0.9 ? 1 : 2;
@@ -1364,7 +1483,7 @@ function getEnemyLevel() {
 
 class SlowZone {
   constructor() {
-    this.x = Math.random() * (canvas.value.width - 100) + 50;
+    this.x = random() * (canvas.value.width - 100) + 50;
     this.y = -50;
     this.radius = 40;
     this.speed = 1.5;
@@ -1418,7 +1537,7 @@ class SlowZone {
     
     // 减速特效
     for (let i = 0; i < 15; i++) {
-      particles.push(new Particle(player.x, player.y, '#2196f3'));
+      createParticle(player.x, player.y, '#2196f3');
     }
   }
 }
@@ -1473,29 +1592,75 @@ function applyPowerUp(type) {
     barrier.health = barrier.maxHealth;
   }
 }
+
+let particlePool = [];
+
 class Particle {
-  constructor(x, y, color) {
+  constructor(x, y, color, size = 1, type = 'normal') {
+    this.init(x, y, color, size, type);
+  }
+  
+  init(x, y, color, size = 1, type = 'normal') {
     this.x = x;
     this.y = y;
-    this.vx = (Math.random() - 0.5) * 4;
-    this.vy = (Math.random() - 0.5) * 4;
-    this.life = 1;
     this.color = color;
+    this.size = size;
+    this.type = type;
+    this.life = 1;
+    this.active = true;
+    
+    if (type === 'trail') {
+      this.vx = (random() - 0.5);
+      this.vy = (random() - 0.5);
+      this.decay = 0.05;
+    } else if (type === 'exhaust') {
+      this.vx = (random() - 0.5) * 2;
+      this.vy = random() * 3 + 2;
+      this.decay = 0.04;
+    } else {
+      const angle = random() * Math.PI * 2;
+      const speed = random() * 4 * size;
+      this.vx = Math.cos(angle) * speed;
+      this.vy = Math.sin(angle) * speed;
+      this.decay = 0.02 + random() * 0.03;
+    }
   }
 
   draw() {
+    if (!this.active) return;
     ctx.fillStyle = this.color;
     ctx.globalAlpha = this.life;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+    ctx.arc(this.x, this.y, 3 * this.size, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
 
   update() {
+    if (!this.active) return;
     this.x += this.vx;
     this.y += this.vy;
-    this.life -= 0.02;
+    this.life -= this.decay;
+    if (this.life <= 0) this.active = false;
+  }
+}
+
+function createParticle(x, y, color, size = 1, type = 'normal') {
+  if (effectLevel === 0 && type === 'trail') return; // 低画质关闭尾迹
+  let p;
+  if (particlePool.length > 0) {
+    p = particlePool.pop();
+    p.init(x, y, color, size, type);
+  } else {
+    p = new Particle(x, y, color, size, type);
+  }
+  particles.push(p);
+}
+
+function freeParticle(p) {
+  p.active = false;
+  if (particlePool.length < 500) {
+    particlePool.push(p);
   }
 }
 
@@ -1781,7 +1946,7 @@ function createExplosion(x, y, color) {
   if (particles.length > MAX_PARTICLES - 15) return;
   
   for (let i = 0; i < 15; i++) {
-    particles.push(new Particle(x, y, color));
+    createParticle(x, y, color);
   }
 }
 
@@ -1943,12 +2108,12 @@ function renderGameEffects(currentTime) {
     if (elapsed % 200 < 50) {
       for (let i = 0; i < 10; i++) {
         victoryEffect.particles.push({
-          x: Math.random() * canvas.value.width,
-          y: Math.random() * canvas.value.height * 0.5,
-          vx: (Math.random() - 0.5) * 10,
-          vy: (Math.random() - 0.5) * 10,
+          x: random() * canvas.value.width,
+          y: random() * canvas.value.height * 0.5,
+          vx: (random() - 0.5) * 10,
+          vy: (random() - 0.5) * 10,
           life: 1,
-          color: `hsl(${Math.random() * 360}, 100%, 50%)`
+          color: `hsl(${random() * 360}, 100%, 50%)`
         });
       }
     }
@@ -2023,15 +2188,26 @@ function autoShoot(currentTime) {
       
       for (let i = 0; i < spreadCount; i++) {
         const angle = spreadCount === 1 ? 0 : (-totalAngle / 2 + (totalAngle / (spreadCount - 1)) * i);
-        bullets.push(new Bullet(player.x, player.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, angle));
+        createBullet(player.x, player.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, angle);
       }
     } else {
-      bullets.push(new Bullet(player.x, player.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, 0));
+      createBullet(player.x, player.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, 0);
     }
     
     // 根据武器类型播放不同音效
     if (sounds.shoot) sounds.shoot(bulletType);
     lastShootTime = currentTime;
+    
+    // Multiplayer sync shoot
+    if (props.isMultiplayer) {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('game_action', {
+          roomId: props.roomData.roomId,
+          action: { type: 'shoot', bulletType, bulletLevel, spreadLevel, pierceLevel }
+        });
+      }
+    }
   }
 }
 
@@ -2222,8 +2398,8 @@ function gameLoop(currentTime) {
     if (currentTime > screenShake.endTime) {
       screenShake.active = false;
     } else {
-      const shakeX = (Math.random() - 0.5) * screenShake.intensity;
-      const shakeY = (Math.random() - 0.5) * screenShake.intensity;
+      const shakeX = (random() - 0.5) * screenShake.intensity;
+      const shakeY = (random() - 0.5) * screenShake.intensity;
       ctx.save();
       ctx.translate(shakeX, shakeY);
     }
@@ -2244,6 +2420,21 @@ function gameLoop(currentTime) {
   // 游戏开始特效期间不允许控制
   if (isTouching && player && !gameStartEffect.active) {
     player.moveTo(touchX, touchY);
+    
+    // Multiplayer sync move
+    if (props.isMultiplayer && (currentTime - lastTime) > 16) { // Throttle sync
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('game_action', {
+          roomId: props.roomData.roomId,
+          action: { type: 'move', x: player.x, y: player.y }
+        });
+      }
+    }
+  }
+
+  if (player2) {
+    player2.draw();
   }
   
   // 绘制防护墙（墙道具：飞机后方固定偏移）
@@ -2301,23 +2492,34 @@ function gameLoop(currentTime) {
     slowEffect.active = false;
   }
 
-  // 性能优化：限制子弹数量
-  if (bullets.length > MAX_BULLETS) {
-    bullets = bullets.slice(-MAX_BULLETS);
-  }
-
-  bullets = bullets.filter(bullet => {
+  // 性能优化：限制子弹数量并使用对象池
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const bullet = bullets[i];
     bullet.update(delta);
     bullet.draw();
-    return bullet.y > -20;
-  });
+    if (bullet.y <= -20 || !bullet.active) {
+      freeBullet(bullet);
+      bullets.splice(i, 1);
+    }
+  }
+
+  // 其他玩家子弹
+  for (let i = otherPlayerBullets.length - 1; i >= 0; i--) {
+    const bullet = otherPlayerBullets[i];
+    bullet.update(delta);
+    bullet.draw();
+    if (bullet.y <= -20 || !bullet.active) {
+      otherPlayerBullets.splice(i, 1);
+    }
+  }
 
   // 生成道具（按权重随机，仅在游戏正式开始后）
-  if (gameOfficiallyStarted && Math.random() < config.powerUpRate * (1 + bossLevel * 0.1)) {
+  const dropMultiplier = props.isMultiplayer ? 2 : 1;
+  if (gameOfficiallyStarted && random() < config.powerUpRate * (1 + bossLevel * 0.1) * dropMultiplier) {
     const types = Object.keys(POWERUP_TYPES);
     const weights = types.map(t => POWERUP_TYPES[t].weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
-    let random = Math.random() * totalWeight;
+    let random = random() * totalWeight;
     let selectedType = types[0];
     
     for (let i = 0; i < types.length; i++) {
@@ -2346,7 +2548,7 @@ function gameLoop(currentTime) {
   });
 
   // 生成减速区域（偶尔出现，仅在游戏正式开始后）
-  if (gameOfficiallyStarted && Math.random() < 0.001 && slowZones.length < 2) {
+  if (gameOfficiallyStarted && random() < 0.001 && slowZones.length < 2) {
     slowZones.push(new SlowZone());
   }
 
@@ -2391,7 +2593,7 @@ function gameLoop(currentTime) {
       attackType = attackTypes[bossLevel - 1];
     } else {
       // 9 关后随机，但难度递增
-      attackType = attackTypes[Math.floor(Math.random() * attackTypes.length)];
+      attackType = attackTypes[Math.floor(random() * attackTypes.length)];
     }
     currentBoss = new Boss(bossLevel, attackType);
     
@@ -2406,7 +2608,7 @@ function gameLoop(currentTime) {
     
     bossLevel++;
     // 重置下一个 Boss 的间隔时间（35-45 秒）
-    nextBossTime = 35000 + Math.random() * 10000;
+    nextBossTime = 35000 + random() * 10000;
   }
 
   if (currentBoss) {
@@ -2435,13 +2637,13 @@ function gameLoop(currentTime) {
               bullet.onHit();
             }
           } else {
-            bullets.splice(i, 1);
+            bullet.active = false;
           }
           continue; // 护盾抵挡，不扣血
         }
         
         // 计算实际伤害（考虑强攻 buff、暴击、防御和穿甲）
-        const isCrit = Math.random() < 0.15;
+        const isCrit = random() < 0.15;
         const boostDamage = (playerWeapon.value.damageBoost || 0) * 5;
         const baseDamage = (bullet.damage || 5) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -2458,7 +2660,7 @@ function gameLoop(currentTime) {
         if (bullet.pierce && bullet.pierceCount < bullet.maxPierce) {
           bullet.pierceCount++;
         } else {
-          bullets.splice(i, 1);
+          bullet.active = false; // instead of splice
         }
         
         if (currentBoss && currentBoss.health <= 0) {
@@ -2484,7 +2686,7 @@ function gameLoop(currentTime) {
           // 限制爆炸粒子数量，防止生成过多卡死
           const particleCount = Math.min(30, MAX_PARTICLES - particles.length);
           for (let j = 0; j < particleCount; j++) {
-            particles.push(new Particle(currentBoss.x, currentBoss.y, '#ffeb3b'));
+            createParticle(currentBoss.x, currentBoss.y, '#ffeb3b');
           }
           
           // 记录Boss被击败的时间，作为下一个Boss计时的起点
@@ -2519,9 +2721,10 @@ function gameLoop(currentTime) {
     enemySpawnMultiplier *= 1.5; // 4阶段后敌机增加50%
   }
   
-  const effectiveSpawnRate = config.enemySpawnRate * enemySpawnMultiplier * (currentBoss ? 0.5 : 1);
+    const timeMultiplier = Math.pow(1.05, Math.floor(gameTime.value / 60));
+    const effectiveSpawnRate = config.enemySpawnRate * enemySpawnMultiplier * timeMultiplier * (currentBoss ? 0.5 : 1);
   
-  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && Math.random() < effectiveSpawnRate) {
+  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && random() < effectiveSpawnRate) {
     const enemyLevel = getEnemyLevel();
     const newEnemy = new Enemy(enemyLevel);
     
@@ -2552,7 +2755,7 @@ function gameLoop(currentTime) {
         }
         
         // 计算实际伤害（考虑强攻 buff、暴击、防御和穿甲）
-        const isCrit = Math.random() < 0.15;
+        const isCrit = random() < 0.15;
         const boostDamage = (playerWeapon.value.damageBoost || 0) * 5;
         const baseDamage = (bullet.damage || 1) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -2566,10 +2769,10 @@ function gameLoop(currentTime) {
         
         // 处理子弹穿透/移除
         if (bullet.pierce && bullet.pierceCount < bullet.maxPierce) {
-          bullet.pierceCount++;
-        } else {
-          bullets.splice(i, 1);
-        }
+            bullet.pierceCount++;
+          } else {
+            bullet.active = false;
+          }
         
         if (enemy.health <= 0) {
           const enemyScore = Math.floor((10 + enemy.level * 10) * getScoreMultiplier());
@@ -2703,6 +2906,13 @@ function endGame(victory = false) {
 
   if (sounds.stopBGM) sounds.stopBGM();
   
+  if (props.isMultiplayer) {
+    const socket = getSocket();
+    if (socket) {
+      socket.off('game_action');
+    }
+  }
+
   if (!victory) {
     if (animationId) {
       cancelAnimationFrame(animationId);
@@ -2745,6 +2955,46 @@ onMounted(() => {
   canvas.value.addEventListener('mousemove', handleMouseMove);
   canvas.value.addEventListener('mouseup', handleMouseUp);
 
+  if (props.isMultiplayer) {
+    player2 = new Player(canvas.value.width / 2 + 40, canvas.value.height - 80, true);
+    
+    if (props.roomData && props.roomData.seed) {
+      rngSeed = props.roomData.seed;
+    }
+    
+    const socket = getSocket();
+    if (socket) {
+      socket.on('game_action', (data) => {
+        if (!player2) return;
+        const { action } = data;
+        if (action.type === 'move') {
+          player2.x = action.x;
+          player2.y = action.y;
+        } else if (action.type === 'shoot') {
+          // 创建对方的子弹
+          const { bulletType, bulletLevel, spreadLevel, pierceLevel } = action;
+          const spreadCount = spreadLevel > 0 ? (spreadLevel === 1 ? 2 : spreadLevel + 1) : 1;
+          
+          if (spreadCount > 1) {
+            const angleBetween = spreadCount === 2 ? 15 : 10;
+            const totalAngle = (spreadCount - 1) * angleBetween * (Math.PI / 180);
+            
+            for (let i = 0; i < spreadCount; i++) {
+              const angle = spreadCount === 1 ? 0 : (-totalAngle / 2 + (totalAngle / (spreadCount - 1)) * i);
+              const b = new Bullet(player2.x, player2.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, angle);
+              b.isOther = true;
+              otherPlayerBullets.push(b);
+            }
+          } else {
+            const b = new Bullet(player2.x, player2.y - 20, bulletType, bulletLevel, spreadLevel, pierceLevel, 0);
+            b.isOther = true;
+            otherPlayerBullets.push(b);
+          }
+        }
+      });
+    }
+  }
+
   gameRunning = true;
   startTime = performance.now();
   
@@ -2771,6 +3021,13 @@ onUnmounted(() => {
     canvas.value.removeEventListener('mousedown', handleMouseDown);
     canvas.value.removeEventListener('mousemove', handleMouseMove);
     canvas.value.removeEventListener('mouseup', handleMouseUp);
+  }
+  
+  if (props.isMultiplayer) {
+    const socket = getSocket();
+    if (socket) {
+      socket.off('game_action');
+    }
   }
 });
 </script>

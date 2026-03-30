@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue';
+import FriendSystem from './FriendSystem.vue';
 
 const props = defineProps({
   playerName: {
@@ -13,35 +14,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['selectGame', 'logout']);
-
-const showEncyclopedia = ref(false);
-
-const ammoData = [
-  {
-    type: 'burst',
-    name: '爆裂弹',
-    symbol: '🔥',
-    color: '#FF8000',
-    description: '发射具有抛物线轨迹的能量球，命中时触发环形冲击波，适合对付集群敌人。',
-    traits: ['抛物线弹道', '范围爆炸', '高伤害']
-  },
-  {
-    type: 'explosive',
-    name: '爆炸弹',
-    symbol: '💣',
-    color: '#333',
-    description: '黑色金属弹体，尾焰呈现摇摆轨迹。命中后产生巨大的蘑菇云特效，威力惊人。',
-    traits: ['S型摇摆尾焰', '闪烁警告', '单点重伤']
-  },
-  {
-    type: 'laser',
-    name: '激光束',
-    symbol: '⚡',
-    color: '#00FFFF',
-    description: '瞬发蓝色电浆光束，伴有随机电弧。穿透力极强，能瞬间贯穿敌阵。',
-    traits: ['瞬发命中', '电弧特效', '持续贯穿']
-  }
-];
 
 const games = [
   {
@@ -57,10 +29,10 @@ const games = [
     id: 'tetris',
     name: '俄罗斯方块',
     icon: '🧱',
-    description: '经典益智游戏，即将推出',
-    tip: '',
+    description: '经典复刻・趣味焕新',
+    tip: '创意道具，丝滑体验',
     color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-    available: false
+    available: true
   },
   {
     id: 'snake',
@@ -105,12 +77,7 @@ function handleLogout() {
 
 <template>
   <div class="game-hub">
-    <!-- 左上角图鉴入口 -->
-    <div class="encyclopedia-trigger" @click="showEncyclopedia = true">
-      <span class="pulse-icon">📜</span>
-      <span class="trigger-text">弹药图鉴</span>
-    </div>
-
+    <FriendSystem :isGuest="isGuest" />
     <div v-if="!isGuest" class="user-profile">
       <span class="welcome-text">欢迎, {{ playerName }}</span>
       <button class="logout-btn" @click="handleLogout">登出</button>
@@ -159,46 +126,13 @@ function handleLogout() {
     <div class="hub-footer">
       <p>更多游戏持续更新中...</p>
     </div>
-
-    <!-- 弹药图鉴 Modal -->
-    <div v-if="showEncyclopedia" class="modal-overlay" @click.self="showEncyclopedia = false">
-      <div class="encyclopedia-modal">
-        <div class="modal-header">
-          <h2>弹药百科全书</h2>
-          <button class="close-btn" @click="showEncyclopedia = false">×</button>
-        </div>
-        
-        <div class="ammo-grid">
-          <div v-for="ammo in ammoData" :key="ammo.type" class="ammo-card">
-            <div class="ammo-visual" :style="{ background: ammo.color }">
-              <span class="ammo-symbol">{{ ammo.symbol }}</span>
-            </div>
-            <div class="ammo-info">
-              <h3>{{ ammo.name }}</h3>
-              <p class="ammo-desc">{{ ammo.description }}</p>
-              <div class="traits">
-                <span v-for="trait in ammo.traits" :key="trait" class="trait-tag">{{ trait }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="rule-box">
-          <p>⚠️ <strong>等级规则</strong>: 切换弹药时，当前弹药等级将 <strong>-1</strong></p>
-          <p>🛡️ <strong>减益效果</strong>: 
-            <span class="debuff">减速 -25% (3s)</span>
-            <span class="debuff">攻击力 -20% (5s)</span>
-          </p>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <style scoped>
 .user-profile {
   position: absolute;
-  top: 25px;
+  top: calc(25px + var(--safe-area-top, 0px));
   right: 25px;
   display: flex;
   align-items: center;
@@ -212,6 +146,24 @@ function handleLogout() {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   z-index: 100;
   transition: all 0.3s ease;
+}
+
+@media (max-width: 420px) {
+  .user-profile {
+    top: calc(12px + var(--safe-area-top, 0px));
+    right: 12px;
+    padding: 6px 12px;
+    gap: 8px;
+  }
+
+  .welcome-text {
+    font-size: 0.85rem;
+  }
+
+  .logout-btn {
+    padding: 5px 10px;
+    font-size: 0.8rem;
+  }
 }
 
 .user-profile:hover {
@@ -249,7 +201,9 @@ function handleLogout() {
 .game-hub {
   width: 100%;
   height: 100vh;
+  height: calc(var(--app-vh, 1vh) * 100);
   min-height: 100vh;
+  min-height: calc(var(--app-vh, 1vh) * 100);
   background: #1a1a1a; /* 深灰背景，赛博朋克风 */
   padding: 20px;
   overflow-y: auto;
@@ -258,156 +212,6 @@ function handleLogout() {
   flex-direction: column;
   align-items: center;
   position: relative;
-}
-
-/* 图鉴入口 */
-.encyclopedia-trigger {
-  position: absolute;
-  top: 25px;
-  left: 25px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 16px;
-  background: rgba(0, 255, 255, 0.15);
-  border: 1px solid #00FFFF;
-  border-radius: 24px;
-  color: #00FFFF;
-  cursor: pointer;
-  z-index: 100;
-  transition: all 0.3s;
-  box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
-}
-
-.encyclopedia-trigger:hover {
-  background: rgba(0, 255, 255, 0.3);
-  box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
-  transform: scale(1.05);
-}
-
-.pulse-icon {
-  font-size: 20px;
-  animation: icon-pulse 2s infinite;
-}
-
-@keyframes icon-pulse {
-  0% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.2); opacity: 0.7; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-/* Modal 样式 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.85);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(8px);
-}
-
-.encyclopedia-modal {
-  width: 90%;
-  max-width: 800px;
-  background: #1a1a1a;
-  border: 2px solid #00FFFF;
-  border-radius: 20px;
-  padding: 30px;
-  position: relative;
-  box-shadow: 0 0 40px rgba(0, 255, 255, 0.2);
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-}
-
-.modal-header h2 {
-  color: #00FFFF;
-  font-size: 1.8rem;
-  margin: 0;
-  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  color: #fff;
-  font-size: 32px;
-  cursor: pointer;
-}
-
-.ammo-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  max-height: 50vh;
-  overflow-y: auto;
-  padding-right: 10px;
-}
-
-.ammo-card {
-  display: flex;
-  gap: 20px;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 20px;
-  border-radius: 15px;
-  border: 1px solid rgba(0, 255, 255, 0.1);
-}
-
-.ammo-visual {
-  width: 80px;
-  height: 80px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40px;
-  flex-shrink: 0;
-}
-
-.ammo-info h3 {
-  color: #fff;
-  margin: 0 0 10px 0;
-}
-
-.ammo-desc {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.9rem;
-  margin-bottom: 12px;
-}
-
-.trait-tag {
-  background: rgba(0, 255, 255, 0.1);
-  color: #00FFFF;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  margin-right: 8px;
-  border: 1px solid rgba(0, 255, 255, 0.2);
-}
-
-.rule-box {
-  margin-top: 30px;
-  padding: 20px;
-  background: rgba(255, 128, 0, 0.05);
-  border: 1px dashed #FF8000;
-  border-radius: 12px;
-  color: #fff;
-  font-size: 0.9rem;
-}
-
-.debuff {
-  display: inline-block;
-  color: #ff4757;
-  margin-right: 15px;
 }
 
 .hub-header {

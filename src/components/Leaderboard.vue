@@ -8,6 +8,10 @@ const props = defineProps({
   score: Number,
   difficulty: String,
   isVictory: Boolean,
+  gameType: {
+    type: String,
+    default: 'plane-war'
+  },
   isGuest: {
     type: Boolean,
     default: false
@@ -52,7 +56,8 @@ async function saveScore() {
     
     const response = await api.post('/scores', {
       score: props.score,
-      difficulty: props.difficulty
+      difficulty: props.difficulty,
+      gameType: props.gameType
     }, {
       headers: {
         'Authorization': `Bearer ${authData.token}`
@@ -77,6 +82,7 @@ async function fetchLeaderboard() {
     const response = await api.get('/scores', {
       params: {
         difficulty: props.difficulty,
+        gameType: props.gameType,
         limit: 50
       }
     });
