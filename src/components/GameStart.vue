@@ -104,7 +104,7 @@ function viewLeaderboard() {
           🏆 排行榜
         </button>
       </div>
-      <h1 class="title">✈️ GAME BOSS</h1>
+      <h1 class="title">✈️ 飞机大战</h1>
       <div class="player-info">
         <span>飞行员: {{ playerName }}</span>
       </div>

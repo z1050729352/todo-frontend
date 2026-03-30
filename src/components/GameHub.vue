@@ -18,7 +18,7 @@ const emit = defineEmits(['selectGame', 'logout']);
 const games = [
   {
     id: 'plane-war',
-    name: 'GAME BOSS',
+    name: '飞机大战',
     icon: '✈️',
     description: '经典射击游戏，消灭敌机获得高分',
     tip: '击败12个Boss即可通关',
@@ -88,7 +88,7 @@ function handleLogout() {
       <span class="welcome-text">退出游客模式</span>
     </div>
     <div class="hub-header">
-      <h1 class="hub-title">� 游戏中心</h1>
+      <h1 class="hub-title">🎮 GAME BOSS</h1>
       <p class="hub-subtitle">选择你喜欢的游戏开始挑战</p>
     </div>
 

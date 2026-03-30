@@ -90,7 +90,7 @@ onUnmounted(() => {
         <div class="form-group">
           <label>游戏类型:</label>
           <select v-model="gameType">
-            <option value="plane-war">✈️ GAME BOSS</option>
+            <option value="plane-war">✈️ 飞机大战</option>
             <option value="tetris">🧱 俄罗斯方块</option>
           </select>
         </div>
@@ -123,7 +123,7 @@ onUnmounted(() => {
         </div>
         <div v-else class="suggestion-box">
           <h3>房主请求开始游戏：</h3>
-          <p><strong>游戏:</strong> {{ suggestionReceived.gameType === 'plane-war' ? 'GAME BOSS' : '俄罗斯方块' }}</p>
+          <p><strong>游戏:</strong> {{ suggestionReceived.gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块' }}</p>
           <p v-if="suggestionReceived.gameType === 'plane-war'"><strong>难度:</strong> {{ suggestionReceived.difficulty }}</p>
           <p v-if="suggestionReceived.gameType === 'tetris'"><strong>时间:</strong> {{ suggestionReceived.timeLimit }} 分钟</p>
           

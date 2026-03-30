@@ -67,7 +67,7 @@ function setupSocketListeners() {
   
   socket.on('game_invite', (data) => {
     // Show invite modal (can be added later)
-    if (window.confirm(`好友 ${data.fromUsername} 邀请你玩 ${data.gameType === 'plane-war' ? 'GAME BOSS' : '俄罗斯方块'}，是否接受？`)) {
+    if (window.confirm(`好友 ${data.fromUsername} 邀请你玩 ${data.gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块'}，是否接受？`)) {
       socket.emit('accept_invite', { fromUserId: data.fromUserId, gameType: data.gameType });
     } else {
       socket.emit('reject_invite', { fromUserId: data.fromUserId });
@@ -173,7 +173,7 @@ function viewLeaderboard() {
       @guestAccess="handleGuestLogin"
     />
     
-    <!-- 游戏中心主页 -->
+    <!-- GAME BOSS -->
     <GameHub 
       v-else-if="appState === 'hub'" 
       :playerName="playerName"
@@ -198,7 +198,7 @@ function viewLeaderboard() {
       @leaveRoom="backToHub"
     />
     
-    <!-- GAME BOSS - 开始页面 -->
+    <!-- 飞机大战 - 开始页面 -->
     <GameStart 
       v-else-if="appState === 'game-select' && currentGame === 'plane-war'" 
       :playerName="playerName"
@@ -208,7 +208,7 @@ function viewLeaderboard() {
       @viewLeaderboard="viewLeaderboard"
     />
     
-    <!-- GAME BOSS - 游戏中 -->
+    <!-- 飞机大战 - 游戏中 -->
     <PlaneGame 
       v-else-if="appState === 'playing' && currentGame === 'plane-war'"
       :playerName="playerName"
@@ -242,7 +242,7 @@ function viewLeaderboard() {
       @backToHub="backToHub"
     />
     
-    <!-- GAME BOSS - 游戏结束 -->
+    <!-- 飞机大战 - 游戏结束 -->
     <Leaderboard 
       v-else-if="appState === 'game-over' && (currentGame === 'plane-war' || currentGame === 'tetris')"
       :playerName="finalPlayerName"

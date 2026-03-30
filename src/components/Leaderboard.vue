@@ -131,7 +131,7 @@ function getVictoryMessage() {
     '我怀疑你不是人类，你是AI对吧？',
     '20分钟无伤通关？开挂了吧兄弟！',
     '你的反应速度已经超越人类极限了！',
-    '建议改名叫"GAME BOSS终结者"！'
+    '建议改名叫"飞机大战终结者"！'
   ];
   return messages[Math.floor(Math.random() * messages.length)];
 }
