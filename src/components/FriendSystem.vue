@@ -7,6 +7,8 @@ const props = defineProps({
   isGuest: Boolean
 });
 
+const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
+
 const friends = ref([]);
 const requests = ref([]);
 const searchUsername = ref('');
@@ -22,7 +24,7 @@ async function fetchFriends() {
   if (!auth) return;
   
   try {
-    const res = await fetch('/api/friends', {
+    const res = await fetch(`${apiBaseUrl}/friends`, {
       headers: { 'Authorization': `Bearer ${auth.token}` }
     });
     const data = await res.json();
@@ -38,7 +40,7 @@ async function searchUser() {
   if (!searchUsername.value.trim()) return;
   const auth = getAuthData();
   try {
-    const res = await fetch(`/api/friends/search?username=${searchUsername.value}`, {
+    const res = await fetch(`${apiBaseUrl}/friends/search?username=${searchUsername.value}`, {
       headers: { 'Authorization': `Bearer ${auth.token}` }
     });
     const data = await res.json();
@@ -55,7 +57,7 @@ async function searchUser() {
 async function sendRequest(userId) {
   const auth = getAuthData();
   try {
-    const res = await fetch('/api/friends/request', {
+    const res = await fetch(`${apiBaseUrl}/friends/request`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${auth.token}`,
@@ -78,7 +80,7 @@ async function sendRequest(userId) {
 async function handleRequest(requestId, action) {
   const auth = getAuthData();
   try {
-    const res = await fetch('/api/friends/handle', {
+    const res = await fetch(`${apiBaseUrl}/friends/handle`, {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${auth.token}`,
