@@ -90,7 +90,7 @@ function seededRandom() {
   rngSeed = (rngSeed * 9301 + 49297) % 233280;
   return rngSeed / 233280;
 }
-const random = seededRandom;
+const getSeededRandom = seededRandom;
 
 const difficultyConfig = {
   easy: { 
@@ -430,10 +430,10 @@ class BackgroundLayer {
     this.elements = [];
     for (let i = 0; i < count; i++) {
       this.elements.push({
-        x: random() * 800, // 初始宽度，会在 resize 后调整
-        y: random() * 1000,
-        size: random() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
-        opacity: random() * 0.5 + 0.2
+        x: getSeededRandom() * 800, // 初始宽度，会在 resize 后调整
+        y: getSeededRandom() * 1000,
+        size: getSeededRandom() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
+        opacity: getSeededRandom() * 0.5 + 0.2
       });
     }
     this.color = color;
@@ -444,7 +444,7 @@ class BackgroundLayer {
       el.y += this.speed * (delta / 16.67);
       if (el.y > canvasHeight) {
         el.y = -20;
-        el.x = random() * canvasWidth;
+        el.x = getSeededRandom() * canvasWidth;
       }
     });
   }
@@ -545,7 +545,7 @@ function drawHexagon(x, y, size) {
 function createExhaustParticles(x, y) {
   if (particles.length >= MAX_PARTICLES) return;
   for (let i = 0; i < 2; i++) {
-    createParticle(x, y, '#00FFFF', 0.8 + random() * 0.4, 'exhaust');
+    createParticle(x, y, '#00FFFF', 0.8 + getSeededRandom() * 0.4, 'exhaust');
   }
 }
 
@@ -557,8 +557,8 @@ class DamageIndicator {
     this.amount = amount;
     this.isCrit = isCrit;
     this.life = 1.0;
-    this.vx = (random() - 0.5) * 2;
-    this.vy = -2 - random() * 2;
+    this.vx = (getSeededRandom() - 0.5) * 2;
+    this.vy = -2 - getSeededRandom() * 2;
   }
 
   update(delta) {
@@ -600,7 +600,7 @@ class Player {
     }
 
     // 引擎喷焰 (粒子)
-    if (random() < 0.6 && !this.isOther) { // 其他玩家不生成粒子减少消耗
+    if (getSeededRandom() < 0.6 && !this.isOther) { // 其他玩家不生成粒子减少消耗
       createExhaustParticles(this.x, this.y + 20);
     }
 
@@ -792,7 +792,7 @@ class Bullet {
       this.y -= Math.cos(this.angle) * this.speed;
     }
 
-    if (random() < 0.4) {
+    if (getSeededRandom() < 0.4) {
       const color = this.bulletType === 'burst' ? '#FF8000' : 
                    (this.bulletType === 'laser' ? '#00FFFF' : '#FFFFFF');
       if (particles.length < MAX_PARTICLES) {
@@ -901,7 +901,7 @@ class Bullet {
 
 class Enemy {
   constructor(level = 1) {
-    this.x = random() * (canvas.value.width - 40) + 20;
+    this.x = getSeededRandom() * (canvas.value.width - 40) + 20;
     this.y = -30;
     this.width = 35;
     this.height = 35;
@@ -950,14 +950,14 @@ class Enemy {
     
     if (level === 1) {
       this.type = 'normal';
-      this.speed = dynamicSpeed + random() * 1;
+      this.speed = dynamicSpeed + getSeededRandom() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
       this.shootPattern = 'single';
     } else if (level === 2) {
       this.type = 'fast';
-      this.speed = dynamicSpeed * 1.3 + random() * 1;
+      this.speed = dynamicSpeed * 1.3 + getSeededRandom() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
@@ -965,7 +965,7 @@ class Enemy {
     } else if (level === 3) {
       this.type = 'shooter';
       this.speed = dynamicSpeed * 0.8;
-      this.horizontalSpeed = (random() - 0.5) * 1.5;
+      this.horizontalSpeed = (getSeededRandom() - 0.5) * 1.5;
       this.pattern = 'zigzag';
       this.canShoot = true;
       this.shootPattern = 'single';
@@ -979,10 +979,10 @@ class Enemy {
     } else {
       this.type = 'elite';
       this.speed = dynamicSpeed * 0.7;
-      this.horizontalSpeed = (random() - 0.5) * 2;
-      this.pattern = random() < 0.5 ? 'zigzag' : 'sine';
+      this.horizontalSpeed = (getSeededRandom() - 0.5) * 2;
+      this.pattern = getSeededRandom() < 0.5 ? 'zigzag' : 'sine';
       this.canShoot = true;
-      this.shootPattern = random() < 0.5 ? 'triple' : 'spread';
+      this.shootPattern = getSeededRandom() < 0.5 ? 'triple' : 'spread';
     }
     
     this.speed = Math.max(1.5, this.speed);
@@ -1345,8 +1345,8 @@ class Boss {
       const centerX = canvas.value.width / 2;
       const spreadWidth = canvas.value.width / 2; // 覆盖屏幕一半宽度
       for (let i = 0; i < bulletCount; i++) {
-        const randomX = centerX + (random() - 0.5) * spreadWidth;
-        const randomAngle = Math.PI / 2 + (random() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
+        const randomX = centerX + (getSeededRandom() - 0.5) * spreadWidth;
+        const randomAngle = Math.PI / 2 + (getSeededRandom() - 0.5) * Math.PI / 6; // 大致向下，略有偏移
         bossBullets.push(new BossBullet(randomX, -20, randomAngle, this.damage, 6));
       }
     } else if (this.attackType === 'small-fast') {
@@ -1428,7 +1428,7 @@ class BossBullet {
 
 class PowerUp {
   constructor(type) {
-    this.x = random() * (canvas.value.width - 40) + 20;
+    this.x = getSeededRandom() * (canvas.value.width - 40) + 20;
     this.y = -30;
     this.type = type;
     this.speed = 2;
@@ -1466,7 +1466,7 @@ class PowerUp {
 function getEnemyLevel() {
   // 根据Boss等级决定敌机等级分布
   const level = bossLevel;
-  const rand = random();
+  const rand = getSeededRandom();
   
   if (level === 1) return 1;
   if (level === 2) return rand < 0.9 ? 1 : 2;
@@ -1483,7 +1483,7 @@ function getEnemyLevel() {
 
 class SlowZone {
   constructor() {
-    this.x = random() * (canvas.value.width - 100) + 50;
+    this.x = getSeededRandom() * (canvas.value.width - 100) + 50;
     this.y = -50;
     this.radius = 40;
     this.speed = 1.5;
@@ -1610,19 +1610,19 @@ class Particle {
     this.active = true;
     
     if (type === 'trail') {
-      this.vx = (random() - 0.5);
-      this.vy = (random() - 0.5);
+      this.vx = (getSeededRandom() - 0.5);
+      this.vy = (getSeededRandom() - 0.5);
       this.decay = 0.05;
     } else if (type === 'exhaust') {
-      this.vx = (random() - 0.5) * 2;
-      this.vy = random() * 3 + 2;
+      this.vx = (getSeededRandom() - 0.5) * 2;
+      this.vy = getSeededRandom() * 3 + 2;
       this.decay = 0.04;
     } else {
-      const angle = random() * Math.PI * 2;
-      const speed = random() * 4 * size;
+      const angle = getSeededRandom() * Math.PI * 2;
+      const speed = getSeededRandom() * 4 * size;
       this.vx = Math.cos(angle) * speed;
       this.vy = Math.sin(angle) * speed;
-      this.decay = 0.02 + random() * 0.03;
+      this.decay = 0.02 + getSeededRandom() * 0.03;
     }
   }
 
@@ -1646,7 +1646,7 @@ class Particle {
 }
 
 function createParticle(x, y, color, size = 1, type = 'normal') {
-  if (effectLevel === 0 && type === 'trail') return; // 低画质关闭尾迹
+  if (window.effectLevel === 0 && type === 'trail') return; // 低画质关闭尾迹
   let p;
   if (particlePool.length > 0) {
     p = particlePool.pop();
@@ -2108,12 +2108,12 @@ function renderGameEffects(currentTime) {
     if (elapsed % 200 < 50) {
       for (let i = 0; i < 10; i++) {
         victoryEffect.particles.push({
-          x: random() * canvas.value.width,
-          y: random() * canvas.value.height * 0.5,
-          vx: (random() - 0.5) * 10,
-          vy: (random() - 0.5) * 10,
+          x: getSeededRandom() * canvas.value.width,
+          y: getSeededRandom() * canvas.value.height * 0.5,
+          vx: (getSeededRandom() - 0.5) * 10,
+          vy: (getSeededRandom() - 0.5) * 10,
           life: 1,
-          color: `hsl(${random() * 360}, 100%, 50%)`
+          color: `hsl(${getSeededRandom() * 360}, 100%, 50%)`
         });
       }
     }
@@ -2398,8 +2398,8 @@ function gameLoop(currentTime) {
     if (currentTime > screenShake.endTime) {
       screenShake.active = false;
     } else {
-      const shakeX = (random() - 0.5) * screenShake.intensity;
-      const shakeY = (random() - 0.5) * screenShake.intensity;
+      const shakeX = (getSeededRandom() - 0.5) * screenShake.intensity;
+      const shakeY = (getSeededRandom() - 0.5) * screenShake.intensity;
       ctx.save();
       ctx.translate(shakeX, shakeY);
     }
@@ -2515,16 +2515,16 @@ function gameLoop(currentTime) {
 
   // 生成道具（按权重随机，仅在游戏正式开始后）
   const dropMultiplier = props.isMultiplayer ? 2 : 1;
-  if (gameOfficiallyStarted && random() < config.powerUpRate * (1 + bossLevel * 0.1) * dropMultiplier) {
+  if (gameOfficiallyStarted && getSeededRandom() < config.powerUpRate * (1 + bossLevel * 0.1) * dropMultiplier) {
     const types = Object.keys(POWERUP_TYPES);
     const weights = types.map(t => POWERUP_TYPES[t].weight);
     const totalWeight = weights.reduce((a, b) => a + b, 0);
-    let random = random() * totalWeight;
+    let randWeight = getSeededRandom() * totalWeight;
     let selectedType = types[0];
     
     for (let i = 0; i < types.length; i++) {
-      random -= weights[i];
-      if (random <= 0) {
+      randWeight -= weights[i];
+      if (randWeight <= 0) {
         selectedType = types[i];
         break;
       }
@@ -2548,7 +2548,7 @@ function gameLoop(currentTime) {
   });
 
   // 生成减速区域（偶尔出现，仅在游戏正式开始后）
-  if (gameOfficiallyStarted && random() < 0.001 && slowZones.length < 2) {
+  if (gameOfficiallyStarted && getSeededRandom() < 0.001 && slowZones.length < 2) {
     slowZones.push(new SlowZone());
   }
 
@@ -2593,7 +2593,7 @@ function gameLoop(currentTime) {
       attackType = attackTypes[bossLevel - 1];
     } else {
       // 9 关后随机，但难度递增
-      attackType = attackTypes[Math.floor(random() * attackTypes.length)];
+      attackType = attackTypes[Math.floor(getSeededRandom() * attackTypes.length)];
     }
     currentBoss = new Boss(bossLevel, attackType);
     
@@ -2608,7 +2608,7 @@ function gameLoop(currentTime) {
     
     bossLevel++;
     // 重置下一个 Boss 的间隔时间（35-45 秒）
-    nextBossTime = 35000 + random() * 10000;
+    nextBossTime = 35000 + getSeededRandom() * 10000;
   }
 
   if (currentBoss) {
@@ -2643,7 +2643,7 @@ function gameLoop(currentTime) {
         }
         
         // 计算实际伤害（考虑强攻 buff、暴击、防御和穿甲）
-        const isCrit = random() < 0.15;
+        const isCrit = getSeededRandom() < 0.15;
         const boostDamage = (playerWeapon.value.damageBoost || 0) * 5;
         const baseDamage = (bullet.damage || 5) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -2724,7 +2724,7 @@ function gameLoop(currentTime) {
     const timeMultiplier = Math.pow(1.05, Math.floor(gameTime.value / 60));
     const effectiveSpawnRate = config.enemySpawnRate * enemySpawnMultiplier * timeMultiplier * (currentBoss ? 0.5 : 1);
   
-  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && random() < effectiveSpawnRate) {
+  if (gameOfficiallyStarted && enemies.length < MAX_ENEMIES && getSeededRandom() < effectiveSpawnRate) {
     const enemyLevel = getEnemyLevel();
     const newEnemy = new Enemy(enemyLevel);
     
@@ -2755,7 +2755,7 @@ function gameLoop(currentTime) {
         }
         
         // 计算实际伤害（考虑强攻 buff、暴击、防御和穿甲）
-        const isCrit = random() < 0.15;
+        const isCrit = getSeededRandom() < 0.15;
         const boostDamage = (playerWeapon.value.damageBoost || 0) * 5;
         const baseDamage = (bullet.damage || 1) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;

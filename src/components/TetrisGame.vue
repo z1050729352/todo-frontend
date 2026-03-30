@@ -214,6 +214,7 @@ let nextPieceShape = null;
 let dropCounter = 0;
 let dropInterval = 1000;
 let isFastDropping = false;
+let isSoftDropping = false;
 
 // 粒子特效
 let particles = [];
@@ -777,6 +778,12 @@ function update(time = 0) {
   const deltaTime = time - lastTime;
   lastTime = time;
   
+  // 防止异常的deltaTime（例如切换后台回来后deltaTime极大）
+  if (deltaTime > 1000) {
+    animationId = requestAnimationFrame(update);
+    return;
+  }
+  
   gameTime.value = Math.floor((performance.now() - startTime) / 1000);
   
   if (gameTime.value > 0 && gameTime.value % 60 === 0) {
@@ -792,8 +799,8 @@ function update(time = 0) {
   
   dropCounter += deltaTime;
   
-  let currentInterval = isFastDropping ? 50 : dropInterval; 
-  if (slowdownEndTime > performance.now() && !isFastDropping) {
+  let currentInterval = (isFastDropping || isSoftDropping) ? 50 : dropInterval; 
+  if (slowdownEndTime > performance.now() && !isFastDropping && !isSoftDropping) {
     currentInterval *= 2.5; 
   }
   
@@ -819,7 +826,7 @@ let touchMoved = false;
 
 function handleTouchStart(e) {
   if (isPaused.value) return;
-  e.preventDefault();
+  e.preventDefault(); 
   initAudio(); // 用户交互时初始化音频
   touchStartX = e.touches[0].clientX;
   touchStartY = e.touches[0].clientY;
@@ -830,7 +837,7 @@ function handleTouchStart(e) {
 
 function handleTouchMove(e) {
   if (isPaused.value) return;
-  e.preventDefault();
+  e.preventDefault(); // 恢复 preventDefault() 以阻止页面滚动，这是移动端游戏必须的
   const currentX = e.touches[0].clientX;
   const currentY = e.touches[0].clientY;
   
@@ -846,11 +853,11 @@ function handleTouchMove(e) {
   const totalDy = currentY - touchStartY;
   
   if (totalDy > BLOCK_SIZE * 1.5) {
-    isFastDropping = true;
+    isSoftDropping = true; 
     touchMoved = true;
   } 
-  else if (dy < -5 && isFastDropping) { 
-    isFastDropping = false;
+  else if (dy < -5 && isSoftDropping) { 
+    isSoftDropping = false;
     touchStartY = currentY; 
     touchMoved = true;
   }
@@ -860,9 +867,9 @@ function handleTouchMove(e) {
 
 function handleTouchEnd(e) {
   if (isPaused.value) return;
-  e.preventDefault();
+  e.preventDefault(); 
   
-  isFastDropping = false;
+  isSoftDropping = false;
   
   const totalDx = e.changedTouches[0].clientX - touchStartX;
   const totalDy = e.changedTouches[0].clientY - touchStartY;
