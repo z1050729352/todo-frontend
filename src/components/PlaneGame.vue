@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import html2canvas from 'html2canvas';
 
 import { getSocket } from '../socket';
+import { showToast } from '../utils/toast';
 
 const props = defineProps({
   playerName: {
@@ -63,7 +64,7 @@ async function takeScreenshot() {
     showScreenshotPreview.value = true;
   } catch (error) {
     console.error('截图失败:', error);
-    alert('截图失败，请稍后重试');
+    showToast('截图失败，请稍后重试', 'error');
   } finally {
     isCapturing.value = false;
   }
@@ -2247,6 +2248,10 @@ function renderGameEffects(currentTime) {
 
 let lastShootTime = 0;
 let lastMoveSyncTime = 0;
+let moveSeq = 0;
+let player2TargetX = 0;
+let player2TargetY = 0;
+let player2LastSeq = -1;
 function autoShoot(currentTime) {
   if (!player) return;
   
@@ -2519,12 +2524,12 @@ function gameLoop(currentTime) {
     player.moveTo(touchX, touchY);
     
     // Multiplayer sync move
-    if (props.isMultiplayer && (currentTime - lastMoveSyncTime) > 16) { // Throttle sync
+    if (props.isMultiplayer && (currentTime - lastMoveSyncTime) > 33) {
       const socket = getSocket();
       if (socket) {
         socket.emit('game_action', {
           roomId: props.roomData.roomId,
-          action: { type: 'move', x: player.x, y: player.y, playerId: socket.id }
+          action: { type: 'move', x: Math.round(player.x), y: Math.round(player.y), seq: moveSeq++ }
         });
         lastMoveSyncTime = currentTime;
       }
@@ -2532,6 +2537,18 @@ function gameLoop(currentTime) {
   }
 
   if (player2) {
+    const dx = player2TargetX - player2.x;
+    const dy = player2TargetY - player2.y;
+    const dist2 = dx * dx + dy * dy;
+    if (dist2 > 180 * 180) {
+      player2.x = player2TargetX;
+      player2.y = player2TargetY;
+    } else {
+      const a = 1 - Math.pow(0.001, delta / 16.67);
+      const alpha = Math.min(0.35, Math.max(0.12, a));
+      player2.x += dx * alpha;
+      player2.y += dy * alpha;
+    }
     player2.draw();
   }
   
@@ -3040,6 +3057,8 @@ onMounted(() => {
 
   if (props.isMultiplayer) {
     player2 = new Player(canvas.value.width / 2 + 40, canvas.value.height - 80, true);
+    player2TargetX = player2.x;
+    player2TargetY = player2.y;
     
     if (props.roomData && props.roomData.seed) {
       rngSeed = props.roomData.seed;
@@ -3051,8 +3070,10 @@ onMounted(() => {
         if (!player2) return;
         const { action } = data;
         if (action.type === 'move') {
-          player2.x = action.x;
-          player2.y = action.y;
+          if (typeof action.seq === 'number' && action.seq <= player2LastSeq) return;
+          if (typeof action.seq === 'number') player2LastSeq = action.seq;
+          if (typeof action.x === 'number') player2TargetX = action.x;
+          if (typeof action.y === 'number') player2TargetY = action.y;
         } else if (action.type === 'shoot') {
           // 创建对方的子弹
           const { bulletType, bulletLevel, spreadLevel, pierceLevel } = action;

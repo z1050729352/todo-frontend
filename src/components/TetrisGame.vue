@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { getSocket } from '../socket';
+import { showToast } from '../utils/toast';
 
 const props = defineProps({
   playerName: {
@@ -49,6 +50,9 @@ const gameTime = ref(0);
 const multiplayerTimeLimit = ref(0); // in seconds
 let startTime = 0;
 let lastTime = 0;
+let hasEnded = false;
+let hasSentGameOver = false;
+let gameActionHandler = null;
 
 const MAX_LEVEL = 12; // 12级通关
 const LINES_PER_LEVEL = 10;
@@ -936,8 +940,9 @@ function changeStyle(styleKey) {
 }
 
 function endGame(victory = false) {
+  if (hasEnded) return;
   if (props.isMultiplayer) {
-    endMultiplayerGame();
+    endMultiplayerGame(true);
     return;
   }
   gameRunning = false;
@@ -946,21 +951,26 @@ function endGame(victory = false) {
   emit('gameOver', score.value, victory);
 }
 
-function endMultiplayerGame() {
+function endMultiplayerGame(sendToOpponent = true) {
+  if (hasEnded) return;
+  hasEnded = true;
   gameRunning = false;
   cancelAnimationFrame(animationId);
   if (currentBgm) currentBgm.pause();
   
   const socket = getSocket();
-  if (socket) {
+  if (socket && sendToOpponent && !hasSentGameOver) {
     socket.emit('game_action', {
       roomId: props.roomData.roomId,
       action: { type: 'game_over', score: score.value }
     });
+    hasSentGameOver = true;
   }
   
   const isVictory = score.value > opponentScore.value;
-  alert(`比赛结束！你的得分: ${score.value}, 对方得分: ${opponentScore.value}。${isVictory ? '你赢了！' : (score.value === opponentScore.value ? '平局！' : '你输了！')}`);
+  const isDraw = score.value === opponentScore.value;
+  const resultText = isVictory ? '你赢了！' : (isDraw ? '平局！' : '你输了！');
+  showToast(`比赛结束：${resultText}（你：${score.value}，对方：${opponentScore.value}）`, isVictory ? 'success' : (isDraw ? 'info' : 'warning'), 5000);
   emit('gameOver', score.value, isVictory);
 }
 
@@ -1010,14 +1020,17 @@ onMounted(() => {
     
     const socket = getSocket();
     if (socket) {
-      socket.on('game_action', (data) => {
+      gameActionHandler = (data) => {
         if (data.action.type === 'score_update') {
           opponentScore.value = data.action.score;
         } else if (data.action.type === 'game_over') {
-          // 对手结束了
-          endMultiplayerGame();
+          if (typeof data.action.score === 'number') {
+            opponentScore.value = data.action.score;
+          }
+          endMultiplayerGame(false);
         }
-      });
+      };
+      socket.on('game_action', gameActionHandler);
     }
   }
 
@@ -1039,6 +1052,10 @@ onUnmounted(() => {
   window.removeEventListener('resize', setCanvasSize);
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
+  const socket = getSocket();
+  if (socket && gameActionHandler) {
+    socket.off('game_action', gameActionHandler);
+  }
 });
 </script>
 

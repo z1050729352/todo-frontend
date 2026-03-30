@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { getAuthData } from '../utils/auth';
 import { getSocket } from '../socket';
+import { showToast } from '../utils/toast';
 
 const props = defineProps({
   isGuest: Boolean
@@ -15,8 +16,10 @@ const searchUsername = ref('');
 const searchResult = ref(null);
 const showModal = ref(false);
 const onlineStatus = ref({});
+const inviteCooldowns = ref({});
 
 let statusInterval = null;
+let inviteCooldownInterval = null;
 
 async function fetchFriends() {
   if (props.isGuest) return;
@@ -47,7 +50,7 @@ async function searchUser() {
     if (res.ok) {
       searchResult.value = data;
     } else {
-      alert(data.error);
+      showToast(data.error || '搜索失败', 'error');
     }
   } catch (err) {
     console.error(err);
@@ -66,11 +69,11 @@ async function sendRequest(userId) {
       body: JSON.stringify({ targetUserId: userId })
     });
     if (res.ok) {
-      alert('请求已发送');
+      showToast('请求已发送', 'success');
       searchResult.value.relation = 'pending';
     } else {
       const data = await res.json();
-      alert(data.error);
+      showToast(data.error || '发送请求失败', 'error');
     }
   } catch (err) {
     console.error(err);
@@ -103,11 +106,27 @@ function checkOnlineStatus() {
   }
 }
 
+function getInviteKey(friendId, gameType) {
+  return `${friendId}_${gameType}`;
+}
+
+function getInviteCooldown(friendId, gameType) {
+  return inviteCooldowns.value[getInviteKey(friendId, gameType)] || 0;
+}
+
+function getInviteButtonText(friendId, gameType) {
+  const cooldown = getInviteCooldown(friendId, gameType);
+  if (cooldown > 0) return `${cooldown}s`;
+  return gameType === 'plane-war' ? '✈️ 邀请' : '🧱 邀请';
+}
+
 function inviteFriend(friendId, gameType) {
+  if (getInviteCooldown(friendId, gameType) > 0) return;
   const socket = getSocket();
   if (socket) {
     socket.emit('invite_friend', { friendId, gameType });
-    alert('邀请已发送');
+    inviteCooldowns.value[getInviteKey(friendId, gameType)] = 10;
+    showToast('邀请已发送', 'success');
   }
 }
 
@@ -120,10 +139,18 @@ onMounted(() => {
     });
   }
   statusInterval = setInterval(checkOnlineStatus, 5000);
+  inviteCooldownInterval = setInterval(() => {
+    const next = {};
+    Object.entries(inviteCooldowns.value).forEach(([key, value]) => {
+      if (value > 1) next[key] = value - 1;
+    });
+    inviteCooldowns.value = next;
+  }, 1000);
 });
 
 onUnmounted(() => {
   clearInterval(statusInterval);
+  clearInterval(inviteCooldownInterval);
   const socket = getSocket();
   if (socket) {
     socket.off('online_status_update');
@@ -174,8 +201,8 @@ onUnmounted(() => {
               <span>{{ friend.username }}</span>
             </div>
             <div class="invite-actions" v-if="onlineStatus[friend.id]">
-              <button @click="inviteFriend(friend.id, 'plane-war')">✈️ 邀请</button>
-              <button @click="inviteFriend(friend.id, 'tetris')">🧱 邀请</button>
+              <button :disabled="getInviteCooldown(friend.id, 'plane-war') > 0" :class="{ cooling: getInviteCooldown(friend.id, 'plane-war') > 0 }" @click="inviteFriend(friend.id, 'plane-war')">{{ getInviteButtonText(friend.id, 'plane-war') }}</button>
+              <button :disabled="getInviteCooldown(friend.id, 'tetris') > 0" :class="{ cooling: getInviteCooldown(friend.id, 'tetris') > 0 }" @click="inviteFriend(friend.id, 'tetris')">{{ getInviteButtonText(friend.id, 'tetris') }}</button>
             </div>
           </div>
         </div>
@@ -262,6 +289,13 @@ onUnmounted(() => {
 .invite-actions button {
   background: rgba(255,255,255,0.1); border: none; color: white; padding: 5px 10px;
   border-radius: 5px; cursor: pointer; margin-left: 5px;
+}
+
+.invite-actions button:disabled,
+.invite-actions button.cooling {
+  background: rgba(255,255,255,0.06);
+  color: #b0b0b0;
+  cursor: not-allowed;
 }
 
 .actions button {

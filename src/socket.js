@@ -5,7 +5,6 @@ let socket = null;
 export const initSocket = (token) => {
     if (socket) return socket;
     
-    // 如果没有配置 SOCKET_URL，尝试从 API_URL 解析出根域名
     let defaultSocketUrl = window.location.origin;
     if (import.meta.env.VITE_API_URL) {
         try {
@@ -19,7 +18,8 @@ export const initSocket = (token) => {
     const serverUrl = import.meta.env.VITE_SOCKET_URL || defaultSocketUrl;
 
     socket = io(serverUrl, {
-        auth: { token }
+        auth: { token },
+        rememberUpgrade: true
     });
 
     socket.on('connect', () => {

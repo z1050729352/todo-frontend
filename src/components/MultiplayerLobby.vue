@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import { getSocket } from '../socket';
+import { showToast } from '../utils/toast';
 
 const props = defineProps({
   roomData: Object,
@@ -27,7 +28,7 @@ function suggestSettings() {
         timeLimit: timeLimit.value
       }
     });
-    alert('已向对方发送设置，等待同意...');
+    showToast('已向对方发送设置，等待同意...', 'info');
   }
 }
 
@@ -62,7 +63,7 @@ onMounted(() => {
     });
 
     socket.on('opponent_disconnected', () => {
-      alert('对方已断开连接');
+      showToast('对方已断开连接', 'error');
       emit('leaveRoom');
     });
   }

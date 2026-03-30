@@ -11,6 +11,8 @@ import TetrisGame from './components/TetrisGame.vue';
 import Leaderboard from './components/Leaderboard.vue';
 import LeaderboardView from './components/LeaderboardView.vue';
 import MultiplayerLobby from './components/MultiplayerLobby.vue';
+import ToastContainer from './components/ToastContainer.vue';
+import { showToast } from './utils/toast';
 
 const appState = ref('auth'); // auth, hub, game-select, multiplayer-lobby, playing, game-over, leaderboard-view
 const currentGame = ref('');
@@ -24,6 +26,9 @@ const multiplayerData = ref(null);
 
 const finalPlayerName = computed(() => {
   if (isMultiplayer.value && multiplayerData.value && multiplayerData.value.opponentName) {
+    if (currentGame.value === 'tetris') {
+      return `${playerName.value} VS ${multiplayerData.value.opponentName}`;
+    }
     return `${playerName.value} & ${multiplayerData.value.opponentName}`;
   }
   return playerName.value;
@@ -83,7 +88,7 @@ function setupSocketListeners() {
   });
 
   socket.on('invite_rejected', (data) => {
-    alert(`好友 ${data.username} 拒绝了你的邀请`);
+    showToast(`好友 ${data.username} 拒绝了你的邀请`, 'warning');
   });
 }
 
@@ -166,6 +171,8 @@ function viewLeaderboard() {
 
 <template>
   <div class="app">
+    <ToastContainer />
+    
     <!-- 登录注册页面 -->
     <Auth
       v-if="appState === 'auth'"

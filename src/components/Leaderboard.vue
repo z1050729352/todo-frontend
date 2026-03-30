@@ -54,12 +54,15 @@ async function saveScore() {
       difficulty: props.difficulty
     });
     
-    const response = await api.post('/scores', {
+    const payload = {
       score: props.score,
       difficulty: props.difficulty,
-      gameType: props.gameType,
-      customPlayerName: props.playerName
-    }, {
+      gameType: props.gameType
+    };
+    if (props.gameType !== 'tetris') {
+      payload.customPlayerName = props.playerName;
+    }
+    const response = await api.post('/scores', payload, {
       headers: {
         'Authorization': `Bearer ${authData.token}`
       }
