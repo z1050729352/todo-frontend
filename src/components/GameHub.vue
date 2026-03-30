@@ -18,7 +18,7 @@ const emit = defineEmits(['selectGame', 'logout']);
 const games = [
   {
     id: 'plane-war',
-    name: '飞机大战',
+    name: 'GAME BOSS',
     icon: '✈️',
     description: '经典射击游戏，消灭敌机获得高分',
     tip: '击败12个Boss即可通关',
