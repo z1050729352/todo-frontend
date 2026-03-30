@@ -2246,6 +2246,7 @@ function renderGameEffects(currentTime) {
 }
 
 let lastShootTime = 0;
+let lastMoveSyncTime = 0;
 function autoShoot(currentTime) {
   if (!player) return;
   
@@ -2518,13 +2519,14 @@ function gameLoop(currentTime) {
     player.moveTo(touchX, touchY);
     
     // Multiplayer sync move
-    if (props.isMultiplayer && (currentTime - lastTime) > 16) { // Throttle sync
+    if (props.isMultiplayer && (currentTime - lastMoveSyncTime) > 16) { // Throttle sync
       const socket = getSocket();
       if (socket) {
         socket.emit('game_action', {
           roomId: props.roomData.roomId,
-          action: { type: 'move', x: player.x, y: player.y }
+          action: { type: 'move', x: player.x, y: player.y, playerId: socket.id }
         });
+        lastMoveSyncTime = currentTime;
       }
     }
   }
