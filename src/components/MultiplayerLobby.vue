@@ -17,6 +17,16 @@ const timeLimit = ref(3); // Tetris only
 const suggestionReceived = ref(null);
 const opponentName = props.roomData.opponentName;
 
+const difficultyLabel = (diff) => {
+  if (diff === 'easy') return '简单';
+  if (diff === 'hard') return '困难';
+  return '普通';
+};
+
+const gameTypeLabel = (type) => {
+  return type === 'plane-war' ? '飞机大战' : '俄罗斯方块';
+};
+
 function suggestSettings() {
   const socket = getSocket();
   if (socket) {
@@ -43,6 +53,10 @@ function agreeSettings() {
 }
 
 function rejectSettings() {
+  const socket = getSocket();
+  if (socket && suggestionReceived.value) {
+    socket.emit('reject_game_settings', { roomId: props.roomData.roomId });
+  }
   suggestionReceived.value = null;
 }
 
@@ -62,6 +76,12 @@ onMounted(() => {
       emit('startGame', settings);
     });
 
+    socket.on('game_settings_rejected', (data) => {
+      if (isHost) {
+        showToast(`${data?.username || '对方'}拒绝了当前设置`, 'warning');
+      }
+    });
+
     socket.on('opponent_disconnected', () => {
       showToast('对方已断开连接', 'error');
       emit('leaveRoom');
@@ -74,6 +94,7 @@ onUnmounted(() => {
   if (socket) {
     socket.off('game_settings_suggested');
     socket.off('start_multiplayer_game');
+    socket.off('game_settings_rejected');
     socket.off('opponent_disconnected');
   }
 });
@@ -106,6 +127,15 @@ onUnmounted(() => {
         </div>
         
         <div class="form-group" v-if="gameType === 'tetris'">
+          <label>难度:</label>
+          <select v-model="difficulty">
+            <option value="easy">简单</option>
+            <option value="medium">普通</option>
+            <option value="hard">困难</option>
+          </select>
+        </div>
+
+        <div class="form-group" v-if="gameType === 'tetris'">
           <label>时间限制:</label>
           <select v-model="timeLimit">
             <option :value="3">3 分钟</option>
@@ -124,8 +154,8 @@ onUnmounted(() => {
         </div>
         <div v-else class="suggestion-box">
           <h3>房主请求开始游戏：</h3>
-          <p><strong>游戏:</strong> {{ suggestionReceived.gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块' }}</p>
-          <p v-if="suggestionReceived.gameType === 'plane-war'"><strong>难度:</strong> {{ suggestionReceived.difficulty }}</p>
+          <p><strong>游戏:</strong> {{ gameTypeLabel(suggestionReceived.gameType) }}</p>
+          <p><strong>难度:</strong> {{ difficultyLabel(suggestionReceived.difficulty) }}</p>
           <p v-if="suggestionReceived.gameType === 'tetris'"><strong>时间:</strong> {{ suggestionReceived.timeLimit }} 分钟</p>
           
           <div class="actions">

@@ -3,12 +3,11 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { getAuthData } from '../utils/auth';
 import { getSocket } from '../socket';
 import { showToast } from '../utils/toast';
+import { apiFetchJson } from '../utils/api';
 
 const props = defineProps({
   isGuest: Boolean
 });
-
-const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
 
 const friends = ref([]);
 const requests = ref([]);
@@ -27,10 +26,9 @@ async function fetchFriends() {
   if (!auth) return;
   
   try {
-    const res = await fetch(`${apiBaseUrl}/friends`, {
+    const data = await apiFetchJson('/friends', {
       headers: { 'Authorization': `Bearer ${auth.token}` }
     });
-    const data = await res.json();
     friends.value = data.friends || [];
     requests.value = data.requests || [];
     checkOnlineStatus();
@@ -43,57 +41,45 @@ async function searchUser() {
   if (!searchUsername.value.trim()) return;
   const auth = getAuthData();
   try {
-    const res = await fetch(`${apiBaseUrl}/friends/search?username=${searchUsername.value}`, {
+    const data = await apiFetchJson(`/friends/search?username=${encodeURIComponent(searchUsername.value)}`, {
       headers: { 'Authorization': `Bearer ${auth.token}` }
     });
-    const data = await res.json();
-    if (res.ok) {
-      searchResult.value = data;
-    } else {
-      showToast(data.error || '搜索失败', 'error');
-    }
+    searchResult.value = data;
   } catch (err) {
     console.error(err);
+    showToast(err?.message || '搜索失败', 'error');
   }
 }
 
 async function sendRequest(userId) {
   const auth = getAuthData();
   try {
-    const res = await fetch(`${apiBaseUrl}/friends/request`, {
+    await apiFetchJson('/friends/request', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${auth.token}`,
-        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ targetUserId: userId })
+      body: { targetUserId: userId }
     });
-    if (res.ok) {
-      showToast('请求已发送', 'success');
-      searchResult.value.relation = 'pending';
-    } else {
-      const data = await res.json();
-      showToast(data.error || '发送请求失败', 'error');
-    }
+    showToast('请求已发送', 'success');
+    searchResult.value.relation = 'pending';
   } catch (err) {
     console.error(err);
+    showToast(err?.message || '发送请求失败', 'error');
   }
 }
 
 async function handleRequest(requestId, action) {
   const auth = getAuthData();
   try {
-    const res = await fetch(`${apiBaseUrl}/friends/handle`, {
+    await apiFetchJson('/friends/handle', {
       method: 'POST',
       headers: { 
         'Authorization': `Bearer ${auth.token}`,
-        'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ requestId, action })
+      body: { requestId, action }
     });
-    if (res.ok) {
-      fetchFriends();
-    }
+    fetchFriends();
   } catch (err) {
     console.error(err);
   }

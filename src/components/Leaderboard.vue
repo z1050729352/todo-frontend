@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
 import { getAuthData } from '../utils/auth';
+import { api } from '../utils/api';
 
 const props = defineProps({
   playerName: String,
@@ -19,12 +19,6 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['restart', 'backToHub']);
-
-const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
-
-const api = axios.create({
-  baseURL: apiBaseUrl
-});
 
 const leaderboard = ref([]);
 const currentRank = ref(null);

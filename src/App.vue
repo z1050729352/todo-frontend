@@ -12,6 +12,7 @@ import Leaderboard from './components/Leaderboard.vue';
 import LeaderboardView from './components/LeaderboardView.vue';
 import MultiplayerLobby from './components/MultiplayerLobby.vue';
 import ToastContainer from './components/ToastContainer.vue';
+import GlobalLoading from './components/GlobalLoading.vue';
 import { showToast } from './utils/toast';
 
 const appState = ref('auth'); // auth, hub, game-select, multiplayer-lobby, playing, game-over, leaderboard-view
@@ -171,6 +172,7 @@ function viewLeaderboard() {
 
 <template>
   <div class="app">
+    <GlobalLoading />
     <ToastContainer />
     
     <!-- 登录注册页面 -->

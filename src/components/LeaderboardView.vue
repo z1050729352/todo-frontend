@@ -1,20 +1,22 @@
 <script setup>
 import { ref, onMounted } from 'vue';
-import axios from 'axios';
 import { getAuthData } from '../utils/auth';
+import { api } from '../utils/api';
+import { getDuelNames, getDuelScores, getDuelWinner, isDuelRecord } from '../modules/DuelLeaderboard';
 
 const emit = defineEmits(['back']);
 
-const difficulty = ref('easy');
+const tab = ref('easy');
 const leaderboard = ref([]);
 const loading = ref(false);
 const error = ref('');
+const replayModal = ref({ open: false, entry: null });
 
-const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
-
-const api = axios.create({
-  baseURL: apiBaseUrl
-});
+const difficultyLabel = (diff) => {
+  if (diff === 'easy') return '简单';
+  if (diff === 'hard') return '困难';
+  return '中等';
+};
 
 async function fetchLeaderboard() {
   loading.value = true;
@@ -24,7 +26,7 @@ async function fetchLeaderboard() {
     const headers = authData?.token ? { 'Authorization': `Bearer ${authData.token}` } : {};
     
     const response = await api.get('/scores', {
-      params: { difficulty: difficulty.value },
+      params: tab.value === 'duel' ? { gameMode: 'duel', gameType: 'tetris', limit: 50 } : { difficulty: tab.value, limit: 50 },
       headers
     });
     leaderboard.value = response.data;
@@ -36,13 +38,21 @@ async function fetchLeaderboard() {
   }
 }
 
-function changeDifficulty(diff) {
-  difficulty.value = diff;
+function changeTab(next) {
+  tab.value = next;
   fetchLeaderboard();
 }
 
 function goBack() {
   emit('back');
+}
+
+function openReplay(entry) {
+  replayModal.value = { open: true, entry };
+}
+
+function closeReplay() {
+  replayModal.value = { open: false, entry: null };
 }
 
 onMounted(() => {
@@ -61,22 +71,29 @@ onMounted(() => {
       <div class="difficulty-tabs">
         <button 
           class="tab"
-          :class="{ active: difficulty === 'easy' }"
-          @click="changeDifficulty('easy')"
+          :class="{ active: tab === 'easy' }"
+          @click="changeTab('easy')"
         >
           简单
         </button>
         <button 
           class="tab"
-          :class="{ active: difficulty === 'medium' }"
-          @click="changeDifficulty('medium')"
+          :class="{ active: tab === 'duel' }"
+          @click="changeTab('duel')"
+        >
+          对战
+        </button>
+        <button 
+          class="tab"
+          :class="{ active: tab === 'medium' }"
+          @click="changeTab('medium')"
         >
           中等
         </button>
         <button 
           class="tab"
-          :class="{ active: difficulty === 'hard' }"
-          @click="changeDifficulty('hard')"
+          :class="{ active: tab === 'hard' }"
+          @click="changeTab('hard')"
         >
           困难
         </button>
@@ -98,35 +115,79 @@ onMounted(() => {
       </div>
 
       <div v-else class="leaderboard-list">
-        <div 
-          v-for="(entry, index) in leaderboard" 
-          :key="entry._id"
-          class="leaderboard-item"
-          :class="{ 
-            'rank-1': index === 0,
-            'rank-2': index === 1,
-            'rank-3': index === 2
-          }"
-        >
-          <div class="rank">
-            <span v-if="index === 0" class="medal">🥇</span>
-            <span v-else-if="index === 1" class="medal">🥈</span>
-            <span v-else-if="index === 2" class="medal">🥉</span>
-            <span v-else class="rank-number">{{ index + 1 }}</span>
+        <template v-if="tab === 'duel'">
+          <div class="duel-list">
+            <div v-if="leaderboard.filter(isDuelRecord).length === 0" class="empty">
+              <p>暂无对战记录</p>
+              <p class="empty-hint">去和好友来一局吧！</p>
+            </div>
+            <template v-else>
+              <div
+                v-for="entry in leaderboard.filter(isDuelRecord)"
+                :key="entry._id"
+                class="duel-card"
+                @click="openReplay(entry)"
+              >
+                <div class="duel-side" :class="{ winner: getDuelWinner(entry) === 'A' }">
+                  <div v-if="getDuelWinner(entry) === 'A'" class="winner-stamp">胜</div>
+                  <div class="duel-name">{{ getDuelNames(entry).aName }}</div>
+                  <div class="duel-score">A {{ getDuelScores(entry).aScore }}分</div>
+                </div>
+                <div class="duel-center">VS</div>
+                <div class="duel-side" :class="{ winner: getDuelWinner(entry) === 'B' }">
+                  <div v-if="getDuelWinner(entry) === 'B'" class="winner-stamp">胜</div>
+                  <div class="duel-name">{{ getDuelNames(entry).bName }}</div>
+                  <div class="duel-score">B {{ getDuelScores(entry).bScore }}分</div>
+                </div>
+                <div class="duel-meta">
+                  <span class="duel-diff">{{ difficultyLabel(entry.difficulty) }}</span>
+                  <span class="duel-date">{{ new Date(entry.createdAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }}</span>
+                </div>
+              </div>
+            </template>
           </div>
-          <div class="player-info">
-            <div class="player-name">{{ entry.playerName }}</div>
-            <div class="player-meta">
-              <span class="score">{{ entry.score }}分</span>
-              <span v-if="entry.isVictory" class="victory-badge">✓ 通关</span>
+        </template>
+        <template v-else>
+          <div 
+            v-for="(entry, index) in leaderboard" 
+            :key="entry._id"
+            class="leaderboard-item"
+            :class="{ 
+              'rank-1': index === 0,
+              'rank-2': index === 1,
+              'rank-3': index === 2
+            }"
+          >
+            <div class="rank">
+              <span v-if="index === 0" class="medal">🥇</span>
+              <span v-else-if="index === 1" class="medal">🥈</span>
+              <span v-else-if="index === 2" class="medal">🥉</span>
+              <span v-else class="rank-number">{{ index + 1 }}</span>
+            </div>
+            <div class="player-info">
+              <div class="player-name">{{ entry.playerName }}</div>
+              <div class="player-meta">
+                <span class="score">{{ entry.score }}分</span>
+                <span v-if="entry.isVictory" class="victory-badge">✓ 通关</span>
+              </div>
+            </div>
+            <div class="date">
+              {{ new Date(entry.createdAt).toLocaleDateString('zh-CN', { 
+                month: 'short', 
+                day: 'numeric' 
+              }) }}
             </div>
           </div>
-          <div class="date">
-            {{ new Date(entry.createdAt).toLocaleDateString('zh-CN', { 
-              month: 'short', 
-              day: 'numeric' 
-            }) }}
+        </template>
+      </div>
+
+      <div v-if="replayModal.open" class="replay-overlay" @click.self="closeReplay">
+        <div class="replay-modal">
+          <div class="replay-header">
+            <div class="replay-title">对战回放数据</div>
+            <button class="replay-close" @click="closeReplay">×</button>
           </div>
+          <pre class="replay-content">{{ JSON.stringify(replayModal.entry?.duel?.replay || replayModal.entry, null, 2) }}</pre>
         </div>
       </div>
     </div>
@@ -293,6 +354,162 @@ onMounted(() => {
 
 .leaderboard-list::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
+}
+
+.duel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.duel-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 50px 1fr;
+  gap: 12px;
+  align-items: stretch;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 14px;
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease;
+  overflow: hidden;
+}
+
+.duel-card:hover {
+  background: rgba(255, 255, 255, 0.22);
+  transform: translateY(-2px);
+}
+
+.duel-side {
+  position: relative;
+  border-radius: 12px;
+  padding: 14px 12px;
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-height: 76px;
+}
+
+.duel-side.winner {
+  background: rgba(255, 215, 0, 0.12);
+  box-shadow: 0 0 18px rgba(255, 215, 0, 0.25);
+  animation: winner-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes winner-pulse {
+  0%, 100% { box-shadow: 0 0 16px rgba(255, 215, 0, 0.18); }
+  50% { box-shadow: 0 0 26px rgba(255, 215, 0, 0.38); }
+}
+
+.winner-stamp {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  transform: rotate(-15deg);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffe082, #ffca28, #ffb300);
+  color: rgba(0, 0, 0, 0.85);
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 1px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+.duel-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 2px;
+}
+
+.duel-name {
+  font-weight: 800;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.duel-score {
+  font-weight: 800;
+  font-size: 16px;
+  color: #fff;
+}
+
+.duel-meta {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.duel-diff {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.replay-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.replay-modal {
+  width: min(760px, 92vw);
+  max-height: min(80vh, 700px);
+  background: rgba(30, 30, 30, 0.95);
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.replay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.replay-title {
+  color: #fff;
+  font-weight: 800;
+}
+
+.replay-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.replay-content {
+  padding: 14px;
+  margin: 0;
+  overflow: auto;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
 }
 
 .leaderboard-item {

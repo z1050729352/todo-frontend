@@ -1,7 +1,14 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue';
 import { getSocket } from '../socket';
 import { showToast } from '../utils/toast';
+import { getAuthData } from '../utils/auth';
+import { api } from '../utils/api';
+import { featureFlags } from '../utils/featureFlags';
+import { bindHardDropButton, computeHardDropY } from '../modules/HardDropButton';
+import { bindHoldFastDropButton } from '../modules/HoldFastDropButton';
+import { bindClickOutside, computePopoverPosition, getThemeStorageKey, t as uiText } from '../modules/ThemeSwitcher';
+import { getCachedImage, getKimetsuAvatarUrls, getKimetsuBgUrl, getKimetsuBoardBgUrl, getLayAvatarUrls, getLayBgUrl, getLayBoardBgUrl, preloadImages } from '../modules/TetrisThemeAssets';
 
 const props = defineProps({
   playerName: {
@@ -36,6 +43,20 @@ const random = seededRandom;
 const emit = defineEmits(['gameOver', 'backToHub']);
 
 const canvas = ref(null);
+const hardDropButton = ref(null);
+const holdFastDropButton = ref(null);
+const themeSwitcherRoot = ref(null);
+const themePopover = ref({
+  open: false,
+  player: 'A',
+  left: 0,
+  top: 0
+});
+const hardDropPos = ref({ left: '0px', top: '0px' });
+const holdFastDropPos = ref({ left: '0px', top: '0px' });
+const isHardDropEnabled = computed(() => featureFlags.hardDropButton);
+const isHoldFastDropEnabled = computed(() => featureFlags.holdFastDropButton);
+const isThemeSwitcherEnabled = computed(() => featureFlags.multiplayerThemeSwitcher && props.isMultiplayer);
 let ctx = null;
 let animationId = null;
 let gameRunning = false;
@@ -53,6 +74,9 @@ let lastTime = 0;
 let hasEnded = false;
 let hasSentGameOver = false;
 let gameActionHandler = null;
+let cleanupHardDrop = null;
+let cleanupHoldFastDrop = null;
+let cleanupThemeOutside = null;
 
 const MAX_LEVEL = 12; // 12级通关
 const LINES_PER_LEVEL = 10;
@@ -91,22 +115,47 @@ const bgmUrls = {
   cyberpunk: 'https://cdn.freesound.org/previews/612/612053_11861866-lq.mp3', 
   ink: 'https://cdn.freesound.org/previews/608/608930_1015240-lq.mp3', 
   fashion: 'https://cdn.freesound.org/previews/611/611685_12836264-lq.mp3', 
-  animal: 'https://cdn.freesound.org/previews/568/568585_12396340-lq.mp3' 
+  animal: 'https://cdn.freesound.org/previews/568/568585_12396340-lq.mp3',
+  kimetsu: 'https://cdn.freesound.org/previews/612/612053_11861866-lq.mp3'
 };
 
 let currentBgm = null;
 let audioContext = null;
 
 // 风格系统
-const currentStyle = ref(localStorage.getItem('tetris_style') || 'warm');
+const soloStyle = ref(localStorage.getItem('tetris_style') || 'warm');
+const playerThemes = ref({
+  playerA_theme: localStorage.getItem('tetris_theme_playerA') || 'warm',
+  playerB_theme: localStorage.getItem('tetris_theme_playerB') || 'warm'
+});
+const selfPlayer = computed(() => (props.roomData && props.roomData.role === 'host') ? 'A' : 'B');
+const STYLE_KEYS = ['warm', 'cyberpunk', 'ink', 'fashion', 'animal', 'kimetsu', 'lay'];
+const kimetsuBg = getKimetsuBgUrl();
+const kimetsuBoardBg = getKimetsuBoardBgUrl();
+const kimetsuAvatars = getKimetsuAvatarUrls();
+const kimetsuImageMap = new Map();
+let kimetsuPrimed = false;
+const layBg = getLayBgUrl();
+const layBoardBg = getLayBoardBgUrl();
+const layAvatars = getLayAvatarUrls();
+const layImageMap = new Map();
+let layPrimed = false;
+const boardBgImageMap = new Map();
+const currentStyle = computed(() => {
+  if (!props.isMultiplayer) return soloStyle.value;
+  const key = selfPlayer.value === 'A' ? playerThemes.value.playerA_theme : playerThemes.value.playerB_theme;
+  return STYLE_KEYS.includes(key) ? key : 'warm';
+});
 const STYLES = {
   warm: {
-    name: '温馨暖色',
-    bg: '#fff5f5',
-    grid: 'rgba(255, 182, 193, 0.2)',
-    border: 'rgba(255, 182, 193, 0.8)',
-    colors: ['', '#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff', '#cbaacb', '#fcc2d7'],
-    drawBlock: (ctx, px, py, size, color, isGhost, isBomb) => {
+    name: '温馨主题',
+    uiBg: '#D8C1AE',
+    panelBg: 'rgba(255, 255, 255, 0.10)',
+    canvasBg: '#D8C1AE',
+    grid: 'rgba(0, 0, 0, 0.06)',
+    border: 'rgba(58, 46, 40, 0.25)',
+    colors: ['', '#F7C9C2', '#E9D8A5', '#B5E0D7', '#A2C8E5', '#D9BFE8', '#F5E2C1', '#CDE7BE'],
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.roundRect(px, py, size, size, 8);
@@ -121,11 +170,13 @@ const STYLES = {
   },
   cyberpunk: {
     name: '赛博朋克',
-    bg: '#0a0a1a',
+    uiBg: '#0a0a1a',
+    panelBg: 'rgba(0, 0, 0, 0.35)',
+    canvasBg: '#0a0a1a',
     grid: 'rgba(0, 255, 255, 0.1)',
     border: '#00ffff',
     colors: ['', '#0ff', '#f0f', '#ff0', '#0f0', '#00f', '#f00', '#f80'],
-    drawBlock: (ctx, px, py, size, color, isGhost, isBomb) => {
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
       ctx.fillStyle = isGhost ? 'transparent' : 'rgba(0,0,0,0.8)';
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
@@ -139,11 +190,13 @@ const STYLES = {
   },
   ink: {
     name: '武侠黑墨',
-    bg: '#e8e8e8',
-    grid: 'rgba(0, 0, 0, 0.05)',
-    border: '#333',
-    colors: ['', '#222', '#444', '#666', '#888', '#aaa', '#ccc', '#111'],
-    drawBlock: (ctx, px, py, size, color, isGhost, isBomb) => {
+    uiBg: '#3A2E28',
+    panelBg: 'rgba(0, 0, 0, 0.22)',
+    canvasBg: '#3A2E28',
+    grid: 'rgba(212, 175, 55, 0.08)',
+    border: '#D4AF37',
+    colors: ['', '#D4AF37', '#B48B55', '#8C6B4B', '#6F543E', '#A38B7D', '#CBBBAA', '#2B1F1A'],
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.moveTo(px + 2, py + 2);
@@ -156,11 +209,13 @@ const STYLES = {
   },
   fashion: {
     name: '时尚丽人',
-    bg: '#f5f5f0',
+    uiBg: '#f5f5f0',
+    panelBg: 'rgba(255, 255, 255, 0.12)',
+    canvasBg: '#f5f5f0',
     grid: 'rgba(217, 208, 193, 0.3)',
     border: '#b8c4c1',
     colors: ['', '#d9d0c1', '#b8c4c1', '#d4c4b7', '#e2d3cd', '#c1cbd7', '#b5c4b1', '#d5caba'],
-    drawBlock: (ctx, px, py, size, color, isGhost, isBomb) => {
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
       ctx.fillStyle = color;
       ctx.fillRect(px, py, size, size);
       if (!isGhost && !isBomb) {
@@ -172,11 +227,13 @@ const STYLES = {
   },
   animal: {
     name: '动物自然',
-    bg: '#e8f5e9',
-    grid: 'rgba(76, 175, 80, 0.1)',
-    border: '#4caf50',
+    uiBg: 'linear-gradient(180deg, #B7D4AA 0%, #E9F5E1 100%)',
+    panelBg: 'rgba(255, 255, 255, 0.10)',
+    canvasBg: '#DDEDD8',
+    grid: 'rgba(58, 125, 74, 0.10)',
+    border: '#5a7d4a',
     colors: ['', '#81c784', '#aed581', '#a1887f', '#ffb74d', '#4dd0e1', '#ff8a65', '#90a4ae'],
-    drawBlock: (ctx, px, py, size, color, isGhost, isBomb) => {
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
       ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(px + size/2, py + size/2, size/2 - 2, 0, Math.PI * 2);
@@ -189,8 +246,116 @@ const STYLES = {
         ctx.fill();
       }
     }
+  },
+  kimetsu: {
+    name: '鬼灭之刃',
+    uiBg: `linear-gradient(180deg, rgba(43,45,62,0.60) 0%, rgba(43,45,62,0.60) 100%), url(${kimetsuBg}) center/cover no-repeat`,
+    panelBg: 'rgba(0, 0, 0, 0.30)',
+    canvasBg: '#2B2D3E',
+    boardBgUrl: kimetsuBoardBg,
+    grid: 'rgba(249, 199, 79, 0.10)',
+    border: '#F9C74F',
+    colors: ['', '#F9C74F', '#A3CEF1', '#E76F51', '#43AA8B', '#577590', '#F94144', '#F3722C'],
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
+      ctx.fillStyle = isGhost ? 'transparent' : 'rgba(0,0,0,0.55)';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(px, py, size, size, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      if (isGhost || isBomb) return;
+
+      const idx = Math.max(1, Math.min(7, Number(value || 1))) - 1;
+      const url = kimetsuAvatars[idx];
+      const pad = Math.max(2, Math.floor(size * 0.12));
+      const inner = size - pad * 2;
+
+      const img = url ? kimetsuImageMap.get(url) : null;
+      if (img) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(px + pad, py + pad, inner, inner, 8);
+        ctx.clip();
+        ctx.drawImage(img, px + pad, py + pad, inner, inner);
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.90)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(px + pad, py + pad, inner, inner, 8);
+      ctx.stroke();
+    }
+  },
+  lay: {
+    name: '张艺兴主题',
+    uiBg: `linear-gradient(180deg, rgba(12,14,18,0.72) 0%, rgba(12,14,18,0.72) 100%), url(${layBg}) center/cover no-repeat`,
+    panelBg: 'rgba(0, 0, 0, 0.34)',
+    canvasBg: '#0C0E12',
+    boardBgUrl: layBoardBg,
+    grid: 'rgba(249, 199, 79, 0.08)',
+    border: 'rgba(249, 199, 79, 0.75)',
+    colors: ['', '#F9C74F', '#E5E7EB', '#94A3B8', '#F59E0B', '#38BDF8', '#A3E635', '#F97316'],
+    drawBlock: (ctx, px, py, size, color, isGhost, isBomb, value) => {
+      ctx.fillStyle = isGhost ? 'transparent' : 'rgba(0,0,0,0.52)';
+      ctx.strokeStyle = 'rgba(249, 199, 79, 0.70)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(px, py, size, size, 6);
+      ctx.fill();
+      ctx.stroke();
+
+      if (isGhost || isBomb) return;
+
+      const idx = Math.max(1, Math.min(7, Number(value || 1))) - 1;
+      const url = layAvatars[idx];
+      const pad = Math.max(2, Math.floor(size * 0.12));
+      const inner = size - pad * 2;
+
+      const img = url ? layImageMap.get(url) : null;
+      if (img) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(px + pad, py + pad, inner, inner, 6);
+        ctx.clip();
+        ctx.drawImage(img, px + pad, py + pad, inner, inner);
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.92)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.roundRect(px + pad, py + pad, inner, inner, 6);
+      ctx.stroke();
+    }
   }
 };
+
+async function primeKimetsuAssets() {
+  if (kimetsuPrimed) return;
+  kimetsuPrimed = true;
+  await preloadImages([kimetsuBg, kimetsuBoardBg, ...kimetsuAvatars]);
+  const bg = await getCachedImage(kimetsuBoardBg);
+  boardBgImageMap.set(kimetsuBoardBg, bg);
+  const loaded = await Promise.all(kimetsuAvatars.map((u) => getCachedImage(u)));
+  kimetsuAvatars.forEach((u, i) => {
+    kimetsuImageMap.set(u, loaded[i]);
+  });
+}
+
+async function primeLayAssets() {
+  if (layPrimed) return;
+  layPrimed = true;
+  await preloadImages([layBg, layBoardBg, ...layAvatars]);
+  const bg = await getCachedImage(layBoardBg);
+  boardBgImageMap.set(layBoardBg, bg);
+  const loaded = await Promise.all(layAvatars.map((u) => getCachedImage(u)));
+  layAvatars.forEach((u, i) => {
+    layImageMap.set(u, loaded[i]);
+  });
+}
 
 // 棋盘配置
 const COLS = 10;
@@ -218,7 +383,7 @@ let nextPieceShape = null;
 let dropCounter = 0;
 let dropInterval = 1000;
 let isFastDropping = false;
-let isSoftDropping = false;
+let fastDropHoldCount = 0;
 
 // 粒子特效
 let particles = [];
@@ -498,10 +663,7 @@ function playerDrop() {
 
 function playerHardDrop() {
   playSFX('drop');
-  while (!collide(board, currentPiece)) {
-    currentPiece.y++;
-  }
-  currentPiece.y--;
+  currentPiece.y = computeHardDropY(board, currentPiece, collide);
   
   if (currentPiece.isBomb) {
     explodeBomb(currentPiece);
@@ -665,7 +827,7 @@ function drawMatrix(matrix, offsetPos, isGhost = false, isBomb = false) {
         const color = isBomb ? '#ff4757' : (value === 8 ? '#ff4757' : style.colors[value]);
         
         ctx.globalAlpha = isGhost ? 0.3 : 1.0;
-        style.drawBlock(ctx, px, py, BLOCK_SIZE, color, isGhost, isBomb || value === 8);
+        style.drawBlock(ctx, px, py, BLOCK_SIZE, color, isGhost, isBomb || value === 8, value);
         ctx.globalAlpha = 1.0;
 
         if (!isGhost && (isBomb || value === 8)) {
@@ -684,7 +846,7 @@ function draw() {
   const style = STYLES[currentStyle.value];
   
   // 背景
-  ctx.fillStyle = style.bg;
+  ctx.fillStyle = style.canvasBg;
   ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
   
   // 修正坐标系统：由于 game-area 变为 flex 布局，canvas 的宽高需要仅为棋盘大小
@@ -700,8 +862,29 @@ function draw() {
   offsetX = 0;
   offsetY = 0;
   
-  ctx.fillStyle = style.bg;
+  ctx.fillStyle = style.canvasBg;
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+  if (style.boardBgUrl) {
+    const bgImg = boardBgImageMap.get(style.boardBgUrl);
+    if (bgImg) {
+      const iw = bgImg.naturalWidth || bgImg.width;
+      const ih = bgImg.naturalHeight || bgImg.height;
+      if (iw && ih) {
+        const scale = Math.max(canvasWidth / iw, canvasHeight / ih);
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = (canvasWidth - dw) / 2;
+        const dy = (canvasHeight - dh) / 2;
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.drawImage(bgImg, dx, dy, dw, dh);
+        ctx.restore();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.20)';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+      }
+    }
+  }
   
     if (isTense.value) {
       const pulse = (Math.sin(performance.now() * 0.005) + 1) / 2;
@@ -803,10 +986,13 @@ function update(time = 0) {
   
   dropCounter += deltaTime;
   
-  let currentInterval = (isFastDropping || isSoftDropping) ? 50 : dropInterval; 
-  if (slowdownEndTime > performance.now() && !isFastDropping && !isSoftDropping) {
-    currentInterval *= 2.5; 
+  const fastDropActive = fastDropHoldCount > 0;
+  const fastDropMultiplier = fastDropActive ? 8 : 1;
+  let baseInterval = dropInterval;
+  if (slowdownEndTime > performance.now() && !fastDropActive) {
+    baseInterval *= 2.5;
   }
+  const currentInterval = baseInterval / fastDropMultiplier;
   
   if (dropCounter > currentInterval) {
     playerDrop();
@@ -854,36 +1040,19 @@ function handleTouchMove(e) {
     touchMoved = true;
   }
   
-  const totalDy = currentY - touchStartY;
-  
-  if (totalDy > BLOCK_SIZE * 1.5) {
-    isSoftDropping = true; 
-    touchMoved = true;
-  } 
-  else if (dy < -5 && isSoftDropping) { 
-    isSoftDropping = false;
-    touchStartY = currentY; 
-    touchMoved = true;
-  }
-  
   lastTouchY = currentY;
 }
 
 function handleTouchEnd(e) {
   if (isPaused.value) return;
   e.preventDefault(); 
-  
-  isSoftDropping = false;
-  
+
   const totalDx = e.changedTouches[0].clientX - touchStartX;
   const totalDy = e.changedTouches[0].clientY - touchStartY;
   
   if (Math.abs(totalDx) < 10 && Math.abs(totalDy) < 10 && !touchMoved) {
     playerRotate();
   } 
-  else if (totalDy > 80 && Math.abs(totalDx) < 30 && e.timeStamp - startTime < 300) {
-    playerHardDrop();
-  }
 }
 
 function handleKeyDown(e) {
@@ -892,7 +1061,7 @@ function handleKeyDown(e) {
   switch(e.key) {
     case 'ArrowLeft': playerMove(-1); break;
     case 'ArrowRight': playerMove(1); break;
-    case 'ArrowDown': isFastDropping = true; break;
+    case 'ArrowDown': if (!e.repeat) setFastDropActive(true); break;
     case 'ArrowUp': playerRotate(); break;
     case ' ': playerHardDrop(); break;
   }
@@ -901,8 +1070,14 @@ function handleKeyDown(e) {
 function handleKeyUp(e) {
   if (isPaused.value) return;
   if (e.key === 'ArrowDown') {
-    isFastDropping = false;
+    setFastDropActive(false);
   }
+}
+
+function setFastDropActive(active) {
+  if (active) fastDropHoldCount += 1;
+  else fastDropHoldCount = Math.max(0, fastDropHoldCount - 1);
+  dropCounter = 0;
 }
 
 function setCanvasSize() {
@@ -922,6 +1097,35 @@ function setCanvasSize() {
   // 居中稍微偏左，给右侧预览留空间
   offsetX = Math.floor((width - COLS * BLOCK_SIZE - 90) / 2);
   offsetY = 10; // 取消了HUD硬编码高度，交由CSS flex处理
+
+  requestAnimationFrame(() => {
+    updateHardDropButtonPosition();
+  });
+}
+
+function updateHardDropButtonPosition() {
+  if (!canvas.value) return;
+  const rect = canvas.value.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const btnW = 80;
+  const btnH = 48;
+  const holdBtnW = Math.max(48, btnW);
+  const holdBtnH = 48;
+  const propsBarTop = vh - 30 - 60;
+  const stackHeight = btnH + 20 + holdBtnH;
+  const maxTop = Math.max(10, propsBarTop - stackHeight - 12);
+
+  let left = rect.right + 20;
+  let top = rect.bottom - stackHeight;
+
+  left = Math.min(Math.max(10, left), vw - btnW - 10);
+  top = Math.min(Math.max(10, top), maxTop);
+
+  hardDropPos.value = { left: `${Math.round(left)}px`, top: `${Math.round(top)}px` };
+  const holdTop = Math.round(top) + btnH + 20;
+  const holdLeft = Math.min(Math.max(10, Math.round(left)), vw - holdBtnW - 10);
+  holdFastDropPos.value = { left: `${holdLeft}px`, top: `${holdTop}px` };
 }
 
 function togglePause() {
@@ -934,9 +1138,56 @@ function togglePause() {
 }
 
 function changeStyle(styleKey) {
-  currentStyle.value = styleKey;
+  soloStyle.value = styleKey;
+  if (styleKey === 'kimetsu') primeKimetsuAssets();
+  if (styleKey === 'lay') primeLayAssets();
   localStorage.setItem('tetris_style', styleKey);
   playBGM(); // 切换音乐
+}
+
+function applyPlayerTheme(player, styleKey, { persist = true, broadcast = true } = {}) {
+  if (!STYLE_KEYS.includes(styleKey)) return;
+  if (player !== 'A' && player !== 'B') return;
+  if (styleKey === 'kimetsu') primeKimetsuAssets();
+  if (styleKey === 'lay') primeLayAssets();
+  if (player === 'A') playerThemes.value.playerA_theme = styleKey;
+  if (player === 'B') playerThemes.value.playerB_theme = styleKey;
+
+  if (persist) {
+    localStorage.setItem(getThemeStorageKey(player), styleKey);
+  }
+
+  if (player === selfPlayer.value) {
+    playBGM();
+  }
+
+  if (broadcast && props.isMultiplayer) {
+    const socket = getSocket();
+    if (socket && props.roomData?.roomId) {
+      socket.emit('game_action', {
+        roomId: props.roomData.roomId,
+        action: { type: 'theme_update', player, theme: styleKey }
+      });
+    }
+  }
+}
+
+function openThemePopover(player, triggerEl) {
+  if (!isThemeSwitcherEnabled.value) return;
+  if (player !== selfPlayer.value) return;
+  if (currentStyle.value === 'kimetsu') {
+    primeKimetsuAssets();
+  }
+  if (currentStyle.value === 'lay') {
+    primeLayAssets();
+  }
+  const rect = triggerEl.getBoundingClientRect();
+  const pos = computePopoverPosition(rect, { width: 240, height: 220 }, 10);
+  themePopover.value = { open: true, player, left: pos.left, top: pos.top };
+}
+
+function closeThemePopover() {
+  themePopover.value = { ...themePopover.value, open: false };
 }
 
 function endGame(victory = false) {
@@ -971,7 +1222,46 @@ function endMultiplayerGame(sendToOpponent = true) {
   const isDraw = score.value === opponentScore.value;
   const resultText = isVictory ? '你赢了！' : (isDraw ? '平局！' : '你输了！');
   showToast(`比赛结束：${resultText}（你：${score.value}，对方：${opponentScore.value}）`, isVictory ? 'success' : (isDraw ? 'info' : 'warning'), 5000);
+  saveDuelRecord();
   emit('gameOver', score.value, isVictory);
+}
+
+async function saveDuelRecord() {
+  if (!featureFlags.duelLeaderboard) return;
+  if (!props.isMultiplayer) return;
+  if (props.isGuest) return;
+  if (props.roomData?.role !== 'host') return;
+  const auth = getAuthData();
+  if (!auth?.token) return;
+
+  const aIsSelf = selfPlayer.value === 'A';
+  const aName = aIsSelf ? props.playerName : (props.roomData?.opponentName || '玩家A');
+  const bName = aIsSelf ? (props.roomData?.opponentName || '玩家B') : props.playerName;
+  const aScore = aIsSelf ? score.value : opponentScore.value;
+  const bScore = aIsSelf ? opponentScore.value : score.value;
+
+  try {
+    await api.post('/scores', {
+      score: Math.max(aScore, bScore),
+      difficulty: props.difficulty,
+      gameType: 'tetris',
+      gameMode: 'duel',
+      duel: {
+        aName,
+        bName,
+        aScore,
+        bScore,
+        replay: {
+          roomId: props.roomData?.roomId,
+          seed: props.roomData?.seed,
+          timeLimit: props.roomData?.timeLimit,
+          difficulty: props.difficulty
+        }
+      }
+    }, {
+      headers: { 'Authorization': `Bearer ${auth.token}` }
+    });
+  } catch {}
 }
 
 function backToHub() {
@@ -1002,6 +1292,8 @@ function restartGame() {
 onMounted(() => {
   ctx = canvas.value.getContext('2d');
   setCanvasSize();
+  if (currentStyle.value === 'kimetsu') primeKimetsuAssets();
+  if (currentStyle.value === 'lay') primeLayAssets();
   window.addEventListener('resize', setCanvasSize);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('keyup', handleKeyUp);
@@ -1009,6 +1301,43 @@ onMounted(() => {
   canvas.value.addEventListener('touchstart', handleTouchStart, { passive: false });
   canvas.value.addEventListener('touchmove', handleTouchMove, { passive: false });
   canvas.value.addEventListener('touchend', handleTouchEnd, { passive: false });
+
+  if (isHardDropEnabled.value) {
+    cleanupHardDrop = bindHardDropButton(hardDropButton.value, {
+      onHardDrop: () => {
+        if (isPaused.value) return;
+        playerHardDrop();
+      },
+      ensureAudio: initAudio,
+      getAudioContext: () => audioContext,
+      getVolume: () => volume.value,
+      isMuted: () => isMuted.value
+    });
+  }
+
+  if (isHoldFastDropEnabled.value) {
+    cleanupHoldFastDrop = bindHoldFastDropButton(holdFastDropButton.value, {
+      onHoldStart: () => {
+        if (isPaused.value) return;
+        setFastDropActive(true);
+      },
+      onHoldEnd: () => {
+        setFastDropActive(false);
+      },
+      ensureAudio: initAudio,
+      getAudioContext: () => audioContext,
+      getVolume: () => volume.value,
+      isMuted: () => isMuted.value
+    });
+  }
+
+  if (isThemeSwitcherEnabled.value) {
+    cleanupThemeOutside = bindClickOutside({
+      rootEl: themeSwitcherRoot.value,
+      getEnabled: () => themePopover.value.open,
+      onClose: () => closeThemePopover()
+    });
+  }
   
   if (props.isMultiplayer && props.roomData && props.roomData.seed) {
     rngSeed = props.roomData.seed;
@@ -1023,6 +1352,10 @@ onMounted(() => {
       gameActionHandler = (data) => {
         if (data.action.type === 'score_update') {
           opponentScore.value = data.action.score;
+        } else if (data.action.type === 'theme_update') {
+          if (data.action.player === 'A' || data.action.player === 'B') {
+            applyPlayerTheme(data.action.player, data.action.theme, { persist: false, broadcast: false });
+          }
         } else if (data.action.type === 'game_over') {
           if (typeof data.action.score === 'number') {
             opponentScore.value = data.action.score;
@@ -1049,6 +1382,9 @@ onUnmounted(() => {
   gameRunning = false;
   cancelAnimationFrame(animationId);
   if (currentBgm) currentBgm.pause();
+  if (cleanupHardDrop) cleanupHardDrop();
+  if (cleanupHoldFastDrop) cleanupHoldFastDrop();
+  if (cleanupThemeOutside) cleanupThemeOutside();
   window.removeEventListener('resize', setCanvasSize);
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('keyup', handleKeyUp);
@@ -1060,7 +1396,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="game-container" :style="{ backgroundColor: STYLES[currentStyle].bg }">
+  <div class="game-container" :class="{ 'kimetsu-bg': currentStyle === 'kimetsu', 'lay-bg': currentStyle === 'lay' }" :style="{ background: STYLES[currentStyle].uiBg }">
     <!-- 顶部 HUD -->
     <div class="hud-top" :style="{ borderColor: STYLES[currentStyle].border }">
       <button class="back-btn" @click="backToHub">←</button>
@@ -1123,13 +1459,13 @@ onUnmounted(() => {
     </div>
 
     <!-- 游戏画布与下一个方块预览区 -->
-    <div class="game-area">
+    <div class="game-area" :class="{ multiplayer: isMultiplayer }">
       <canvas ref="canvas"></canvas>
       
       <!-- 侧边栏 -->
-      <div class="side-panel" :style="{ borderColor: STYLES[currentStyle].border, background: STYLES[currentStyle].bg }">
+      <div class="side-panel" :style="{ borderColor: STYLES[currentStyle].border, background: STYLES[currentStyle].panelBg }">
         <div class="next-piece-box">
-          <div class="panel-title">NEXT</div>
+          <div class="panel-title">{{ uiText('next') }}</div>
           <div class="preview-grid" :class="[currentStyle]">
             <div v-for="y in 4" :key="'y'+y" class="preview-row">
               <div v-for="x in 4" :key="'x'+x" class="preview-cell">
@@ -1141,8 +1477,65 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+
+        <div v-if="isThemeSwitcherEnabled" ref="themeSwitcherRoot" class="theme-switcher">
+          <button
+            class="theme-toggle-btn"
+            :disabled="selfPlayer !== 'A'"
+            :class="{ disabled: selfPlayer !== 'A' }"
+            @click="openThemePopover('A', $event.currentTarget)"
+          >
+            <span class="theme-icon">🎨</span>
+            <span class="theme-text">{{ uiText('theme') }}</span>
+            <span class="theme-badge">A</span>
+          </button>
+          <button
+            class="theme-toggle-btn"
+            :disabled="selfPlayer !== 'B'"
+            :class="{ disabled: selfPlayer !== 'B' }"
+            @click="openThemePopover('B', $event.currentTarget)"
+          >
+            <span class="theme-icon">🎨</span>
+            <span class="theme-text">{{ uiText('theme') }}</span>
+            <span class="theme-badge">B</span>
+          </button>
+
+          <div v-if="themePopover.open" class="theme-popover" :style="{ left: themePopover.left + 'px', top: themePopover.top + 'px' }">
+            <div class="theme-popover-panel" :style="{ borderColor: STYLES[currentStyle].border, background: STYLES[currentStyle].panelBg }">
+              <div class="style-grid">
+                <button
+                  v-for="(style, key) in STYLES"
+                  :key="key"
+                  class="style-btn"
+                  :class="{ active: (selfPlayer === 'A' ? playerThemes.playerA_theme : playerThemes.playerB_theme) === key }"
+                  @click="applyPlayerTheme(selfPlayer, key); closeThemePopover()"
+                >
+                  {{ style.name }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+
+    <button
+      v-if="isHardDropEnabled"
+      ref="hardDropButton"
+      class="hard-drop-btn"
+      :style="hardDropPos"
+    >
+      {{ uiText('hardDrop') }}
+    </button>
+
+    <button
+      v-if="isHoldFastDropEnabled"
+      ref="holdFastDropButton"
+      class="hold-fast-drop-btn"
+      :style="holdFastDropPos"
+    >
+      {{ uiText('holdFastDrop') }}
+    </button>
 
     <!-- 底部道具栏 -->
     <div class="props-bar">
@@ -1177,6 +1570,36 @@ onUnmounted(() => {
   transition: background-color 0.5s ease;
 }
 
+.game-container.kimetsu-bg {
+  background-position: center;
+  animation: kimetsu-lightning 10.8s infinite;
+}
+
+@keyframes kimetsu-lightning {
+  0%, 70% { background-position: 50% 50%; filter: brightness(1) contrast(1); }
+  72% { background-position: 49% 50%; filter: brightness(1.06) contrast(1.06); }
+  73% { background-position: 51% 49%; filter: brightness(1.10) contrast(1.08); }
+  74% { background-position: 50% 51%; filter: brightness(1.06) contrast(1.05); }
+  75% { background-position: 52% 50%; filter: brightness(1.08) contrast(1.06); }
+  76% { background-position: 48% 51%; filter: brightness(1.04) contrast(1.03); }
+  77% { background-position: 50% 50%; filter: brightness(1) contrast(1); }
+  100% { background-position: 50% 50%; filter: brightness(1) contrast(1); }
+}
+
+.game-container.lay-bg {
+  background-position: center;
+  animation: lay-flash 8.8s infinite;
+}
+
+@keyframes lay-flash {
+  0%, 78% { filter: brightness(1) contrast(1); }
+  80% { filter: brightness(1.08) contrast(1.06); }
+  81% { filter: brightness(1.02) contrast(1.02); }
+  82% { filter: brightness(1.12) contrast(1.08); }
+  83% { filter: brightness(1) contrast(1); }
+  100% { filter: brightness(1) contrast(1); }
+}
+
 .game-area {
   display: flex;
   justify-content: center;
@@ -1187,8 +1610,101 @@ onUnmounted(() => {
   padding-top: 80px; /* HUD高度 */
 }
 
+.game-area.multiplayer {
+  gap: 15px;
+}
+
 canvas {
   display: block;
+}
+
+.hard-drop-btn {
+  position: fixed;
+  width: 80px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0.62));
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  z-index: 12;
+  user-select: none;
+  touch-action: manipulation;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(10px);
+  transition: transform 0.1s ease, filter 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
+}
+
+.hard-drop-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.20);
+}
+
+.hard-drop-btn.is-pressed {
+  transform: scale(0.95);
+  filter: brightness(0.95);
+}
+
+.hard-drop-btn:disabled,
+.hard-drop-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.hold-fast-drop-btn {
+  position: fixed;
+  width: 80px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.58));
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  z-index: 12;
+  user-select: none;
+  touch-action: manipulation;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+  transition: filter 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease, transform 0.1s ease;
+}
+
+.hold-fast-drop-btn:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.hold-fast-drop-btn.is-pressed {
+  filter: brightness(0.92);
+  transform: scale(0.98);
+}
+
+.hold-fast-drop-btn.is-pressed::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 6px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  animation: hold-pulse 0.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes hold-pulse {
+  0% { opacity: 0.9; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+
+.hold-fast-drop-btn:disabled,
+.hold-fast-drop-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* 侧边栏及预览区 */
@@ -1235,6 +1751,87 @@ canvas {
   width: 100%;
   height: 100%;
   background: #ccc; /* fallback */
+}
+
+.theme-switcher {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  position: relative;
+}
+
+.theme-toggle-btn {
+  width: 60px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12px;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(0, 0, 0, 0.43);
+}
+
+.theme-toggle-btn.disabled,
+.theme-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.theme-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.theme-text {
+  line-height: 1;
+}
+
+.theme-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.theme-popover {
+  position: fixed;
+  z-index: 20;
+}
+
+.theme-popover-panel {
+  width: 240px;
+  border-radius: 12px;
+  border: 2px solid;
+  padding: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+@media (max-width: 480px) {
+  .hard-drop-btn {
+    font-size: 14px;
+  }
+  .hold-fast-drop-btn {
+    font-size: 13px;
+  }
 }
 
 /* 顶部 HUD */

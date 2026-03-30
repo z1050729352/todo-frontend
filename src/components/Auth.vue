@@ -1,10 +1,9 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { setAuthData } from '../utils/auth';
+import { apiFetchJson } from '../utils/api';
 
 const emit = defineEmits(['loginSuccess', 'guestAccess']);
-
-const apiBaseUrl = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api')).replace(/\/$/, '');
 
 const isLoginMode = ref(true);
 const username = ref('');
@@ -28,8 +27,7 @@ const validateUsername = async () => {
     return;
   }
   try {
-    const res = await fetch(`${apiBaseUrl}/auth/check-username?username=${encodeURIComponent(username.value)}`);
-    const data = await res.json();
+    const data = await apiFetchJson(`/auth/check-username?username=${encodeURIComponent(username.value)}`);
     if (data.exists) {
       usernameError.value = '账号已被注册';
     } else {
@@ -63,47 +61,25 @@ const handleSubmit = async () => {
     }
   }
 
-  const url = isLoginMode.value 
-    ? `${apiBaseUrl}/auth/login` 
-    : `${apiBaseUrl}/auth/register`;
-
   try {
-    const res = await fetch(url, {
+    const data = await apiFetchJson(isLoginMode.value ? '/auth/login' : '/auth/register', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        username: username.value,
-        password: password.value
-      })
+      body: { username: username.value, password: password.value }
     });
-    
-    const data = await res.json();
-    if (!res.ok) {
-      errorMsg.value = data.error || '请求失败';
-      return;
-    }
 
     // 如果是注册成功，直接调用登录获取token，或者在注册接口里其实可以顺便返回token
     // 但根据需求"注册完自动登录"，这里如果是注册，可以用相同的账号密码自动请求一次login
     if (!isLoginMode.value) {
-      const loginRes = await fetch(`${apiBaseUrl}/auth/login`, {
+      const loginData = await apiFetchJson('/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.value, password: password.value })
+        body: { username: username.value, password: password.value }
       });
-      const loginData = await loginRes.json();
-      if (!loginRes.ok) {
-        errorMsg.value = loginData.error || '自动登录失败';
-        return;
-      }
       handleLoginSuccess(loginData);
     } else {
       handleLoginSuccess(data);
     }
   } catch (err) {
-    errorMsg.value = '网络错误';
+    errorMsg.value = err?.message || '网络错误';
   }
 };
 
