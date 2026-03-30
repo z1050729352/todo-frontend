@@ -3,10 +3,11 @@
     "private": true,
     "version": "0.0.0",
     "type": "module",
+    "engines": {
+        "node": "22.x"
+    },
     "scripts": {
-        "predev": "node ../check-version.js",
         "dev": "vite",
-        "prebuild": "node ../check-version.js",
         "build": "vite build",
         "preview": "vite preview"
     },
