@@ -79,6 +79,7 @@ let gameRunning = false;
 
 const score = ref(0);
 const health = ref(100);
+const teammateHealth = ref(100);
 const gameTime = ref(0);
 let startTime = 0;
 let lastTime = 0;
@@ -311,6 +312,22 @@ function initSounds() {
             oscillator.stop(audioContext.currentTime + 0.2);
           }, i * 60);
         });
+      } catch (e) {}
+    };
+
+    // 低血量警告音效
+    sounds.lowHealth = () => {
+      try {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.value = 600;
+        oscillator.type = 'square';
+        gainNode.gain.setValueAtTime(0.05, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.3);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
       } catch (e) {}
     };
     
@@ -1542,14 +1559,77 @@ class SlowZone {
   }
 }
 
+function syncHealth() {
+  if (props.isMultiplayer) {
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('game_action', {
+        roomId: props.roomData.roomId,
+        action: {
+          type: 'health_sync',
+          health: health.value,
+          teammateHealth: teammateHealth.value
+        }
+      });
+    }
+  }
+}
+
+function takeDamage(amount) {
+  if (health.value > 0) {
+    if (health.value >= amount) {
+      health.value -= amount;
+    } else {
+      const remaining = amount - health.value;
+      health.value = 0;
+      if (props.isMultiplayer) {
+        teammateHealth.value = Math.max(0, teammateHealth.value - remaining);
+      }
+    }
+  } else if (props.isMultiplayer) {
+    teammateHealth.value = Math.max(0, teammateHealth.value - amount);
+  } else {
+    health.value = Math.max(0, health.value - amount);
+  }
+  
+  triggerDamageFlash();
+  triggerShake(12, 150);
+  
+  syncHealth();
+  
+  if (health.value <= 0 && (!props.isMultiplayer || teammateHealth.value <= 0)) {
+    endGame();
+    return true; // Indicates game over
+  }
+  return false;
+}
+
+function healPlayer(amount) {
+  const oldHealth = health.value;
+  if (health.value < 100) {
+    if (health.value + amount <= 100) {
+      health.value += amount;
+    } else {
+      const remaining = amount - (100 - health.value);
+      health.value = 100;
+      if (props.isMultiplayer) {
+        teammateHealth.value = Math.min(100, teammateHealth.value + remaining);
+      }
+    }
+  } else if (props.isMultiplayer) {
+    teammateHealth.value = Math.min(100, teammateHealth.value + amount);
+  }
+  
+  if (health.value > oldHealth || (props.isMultiplayer && teammateHealth.value < 100)) {
+    triggerHealFlash();
+  }
+  
+  syncHealth();
+}
+
 function applyPowerUp(type) {
   if (type === 'HEALTH') {
-    const healAmount = 30;
-    const oldHealth = health.value;
-    health.value = Math.min(100, health.value + healAmount);
-    if (health.value > oldHealth) {
-      triggerHealFlash();
-    }
+    healPlayer(30);
   } else if (type === 'BOOST') {
     // 强攻：增加伤害叠加，最多3层，持续10秒
     playerWeapon.value.damageBoost = Math.min(3, playerWeapon.value.damageBoost + 1);
@@ -1713,6 +1793,7 @@ function restartGame() {
   // 重置所有游戏状态
   score.value = 0;
   health.value = 100;
+  teammateHealth.value = 100;
   gameTime.value = 0;
   bossLevel = 1;
   currentBoss = null;
@@ -2333,6 +2414,8 @@ function renderPauseScreen() {
   });
 }
 
+let lastLowHealthSoundTime = 0;
+
 function gameLoop(currentTime) {
   if (!gameRunning && !victoryEffect.active) return;
   
@@ -2345,11 +2428,24 @@ function gameLoop(currentTime) {
   }
   
   // 立即检查血量，优先级最高
-  if (health.value <= 0) {
+  if (health.value <= 0 && (!props.isMultiplayer || teammateHealth.value <= 0)) {
     if (gameRunning) {
       endGame();
     }
     return;
+  }
+  
+  // 低血量警告音效
+  if (health.value > 0 && health.value <= 20) {
+    if (currentTime - lastLowHealthSoundTime > 1000) {
+      if (sounds.lowHealth) sounds.lowHealth();
+      lastLowHealthSoundTime = currentTime;
+    }
+  } else if (props.isMultiplayer && teammateHealth.value > 0 && teammateHealth.value <= 20) {
+    if (currentTime - lastLowHealthSoundTime > 1000) {
+      if (sounds.lowHealth) sounds.lowHealth();
+      lastLowHealthSoundTime = currentTime;
+    }
   }
 
   const delta = currentTime - lastTime;
@@ -2668,12 +2764,7 @@ function gameLoop(currentTime) {
           score.value += bossScore;
           
           // 恢复血量
-          const healAmount = config.bossHealPercent;
-          const oldHealth = health.value;
-          health.value = Math.min(100, health.value + healAmount);
-          if (health.value > oldHealth) {
-            triggerHealFlash();
-          }
+          healPlayer(config.bossHealPercent);
           
           // 如果是buff boss，恢复敌机生成速度
           if (currentBoss.attackType === 'buff') {
@@ -2791,12 +2882,8 @@ function gameLoop(currentTime) {
         player.shield--;
         createExplosion(enemy.x, enemy.y, '#00bcd4');
       } else {
-        health.value -= 20;
-        triggerDamageFlash(); // 触发掉血特效
         createExplosion(enemy.x, enemy.y, '#ff4757');
-        triggerShake(12, 150); // 玩家受击震动
-        if (health.value <= 0) {
-          endGame();
+        if (takeDamage(20)) {
           return false;
         }
       }
@@ -2823,10 +2910,7 @@ function gameLoop(currentTime) {
     if (enemy.y > canvas.value.height) {
       const penalty = Math.floor(5 * getScoreMultiplier());
       score.value = Math.max(0, score.value - penalty);
-      health.value = Math.max(0, health.value - 5); // 扣血
-      triggerDamageFlash(); // 触发掉血特效
-      if (health.value <= 0) {
-        endGame();
+      if (takeDamage(5)) {
         return false;
       }
       return false;
@@ -2849,11 +2933,8 @@ function gameLoop(currentTime) {
         player.shield--;
         createExplosion(bullet.x, bullet.y, '#00bcd4');
       } else {
-        health.value = Math.max(0, health.value - bullet.damage);
-        triggerDamageFlash(); // 触发掉血特效
         createExplosion(bullet.x, bullet.y, '#ff0066');
-        if (health.value <= 0) {
-          endGame();
+        if (takeDamage(bullet.damage)) {
           return false;
         }
       }
@@ -2990,6 +3071,16 @@ onMounted(() => {
             b.isOther = true;
             otherPlayerBullets.push(b);
           }
+        } else if (action.type === 'health_sync') {
+          // Teammate sent their state
+          // Their 'health' is our 'teammateHealth'
+          // Their 'teammateHealth' is our 'health'
+          teammateHealth.value = action.health;
+          health.value = action.teammateHealth;
+          
+          if (health.value <= 0 && teammateHealth.value <= 0) {
+            endGame();
+          }
         }
       });
     }
@@ -3060,9 +3151,16 @@ onUnmounted(() => {
 
       <div class="hud-right">
         <!-- 武器与血量状态 -->
-        <div class="weapon-status">
-          <div class="health-mini-bar">
-            <div class="health-fill" :style="{ width: health + '%' }"></div>
+        <div class="weapon-status" :class="{'multiplayer': isMultiplayer}">
+          <div class="health-bars-container">
+            <div class="health-mini-bar player-health" :class="{'critical-flash': health <= 20}">
+              <div class="health-fill" :style="{ width: health + '%' }"></div>
+              <span v-if="health <= 0" class="health-text">濒危</span>
+            </div>
+            <div v-if="isMultiplayer" class="health-mini-bar teammate-health" :class="{'critical-flash': teammateHealth <= 20}">
+              <div class="health-fill teammate-fill" :style="{ width: teammateHealth + '%' }"></div>
+              <span v-if="teammateHealth <= 0" class="health-text">濒危</span>
+            </div>
           </div>
           <div class="weapon-icon-wrapper" :class="{ 'pulse-glow': true }">
             <span class="weapon-symbol">{{ getWeaponSymbol() }}</span>
@@ -3232,19 +3330,54 @@ onUnmounted(() => {
   border-right: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.health-bars-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-right: 5px;
+}
+
 .health-mini-bar {
   width: 60px;
-  height: 6px;
+  height: 8px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
-  margin-right: 5px;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .health-fill {
   height: 100%;
   background: linear-gradient(90deg, #FF416C, #FF4B2B);
   transition: width 0.3s ease;
+}
+
+.teammate-fill {
+  background: linear-gradient(90deg, #00b4db, #0083b0);
+}
+
+.health-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  color: white;
+  font-weight: bold;
+  text-shadow: 0 0 2px black;
+  white-space: nowrap;
+}
+
+@keyframes criticalPulse {
+  0% { opacity: 1; box-shadow: 0 0 0px transparent; }
+  50% { opacity: 0.7; box-shadow: 0 0 8px #FF416C; }
+  100% { opacity: 1; box-shadow: 0 0 0px transparent; }
+}
+
+.critical-flash {
+  animation: criticalPulse 1s infinite;
+  border-color: #FF416C;
 }
 
 .weapon-icon-wrapper {

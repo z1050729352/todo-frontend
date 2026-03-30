@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { getAuthData, clearAuthData } from './utils/auth';
 import { initSocket, disconnectSocket, getSocket } from './socket';
 import Auth from './components/Auth.vue';
@@ -21,6 +21,13 @@ const isVictory = ref(false);
 const isGuest = ref(false);
 const isMultiplayer = ref(false);
 const multiplayerData = ref(null);
+
+const finalPlayerName = computed(() => {
+  if (isMultiplayer.value && multiplayerData.value && multiplayerData.value.opponentName) {
+    return `${playerName.value} & ${multiplayerData.value.opponentName}`;
+  }
+  return playerName.value;
+});
 
 onMounted(() => {
   checkAuth();
@@ -238,7 +245,7 @@ function viewLeaderboard() {
     <!-- 飞机大战 - 游戏结束 -->
     <Leaderboard 
       v-else-if="appState === 'game-over' && (currentGame === 'plane-war' || currentGame === 'tetris')"
-      :playerName="playerName"
+      :playerName="finalPlayerName"
       :isGuest="isGuest"
       :score="finalScore"
       :difficulty="difficulty"

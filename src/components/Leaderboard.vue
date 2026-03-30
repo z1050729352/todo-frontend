@@ -57,7 +57,8 @@ async function saveScore() {
     const response = await api.post('/scores', {
       score: props.score,
       difficulty: props.difficulty,
-      gameType: props.gameType
+      gameType: props.gameType,
+      customPlayerName: props.playerName
     }, {
       headers: {
         'Authorization': `Bearer ${authData.token}`
