@@ -61,7 +61,10 @@ function rejectSettings() {
 }
 
 function leaveRoom() {
-  // Not fully implemented room leave in backend yet, but UI wise:
+  const socket = getSocket();
+  if (socket && props.roomData?.roomId) {
+    socket.emit('leave_room', { roomId: props.roomData.roomId });
+  }
   emit('leaveRoom');
 }
 

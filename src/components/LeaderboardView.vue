@@ -1,35 +1,62 @@
 <script setup>
-import { ref, onMounted } from 'vue';
-import { getAuthData } from '../utils/auth';
+import { ref, onMounted, computed } from 'vue';
 import { api } from '../utils/api';
-import { getDuelNames, getDuelScores, getDuelWinner, isDuelRecord } from '../modules/DuelLeaderboard';
 
 const emit = defineEmits(['back']);
 
-const tab = ref('easy');
+const games = ref([]);
+const selectedGame = ref('aircraft');
+const selectedMode = ref('easy');
 const leaderboard = ref([]);
 const loading = ref(false);
 const error = ref('');
-const replayModal = ref({ open: false, entry: null });
 
-const difficultyLabel = (diff) => {
-  if (diff === 'easy') return '简单';
-  if (diff === 'hard') return '困难';
-  return '中等';
+const modeLabel = (m) => {
+  if (m === 'easy') return '简单';
+  if (m === 'medium') return '中等';
+  if (m === 'hard') return '困难';
+  if (m === 'pvp') return '对战';
+  if (m === 'coop') return '组队';
+  return m;
 };
+
+const gameLabel = (g) => {
+  if (g === 'tetris') return '俄罗斯方块';
+  if (g === 'aircraft') return '飞机大战';
+  return g;
+};
+
+const modesForGame = computed(() => {
+  const item = games.value.find((x) => x.game === selectedGame.value);
+  if (selectedGame.value === 'aircraft') {
+    return ['easy', 'medium', 'hard', 'coop'];
+  } else if (selectedGame.value === 'tetris') {
+    return ['easy', 'medium', 'hard', 'pvp'];
+  }
+  return item?.modes || ['easy', 'medium', 'hard'];
+});
+
+function avatarText(name) {
+  const s = String(name || '').trim();
+  return s ? s.slice(0, 1).toUpperCase() : '?';
+}
+
+async function fetchConfig() {
+  const res = await api.get('/rank/config');
+  const list = res?.data?.games || [];
+  games.value = Array.isArray(list) ? list : [];
+  if (games.value.length > 0) {
+    selectedGame.value = games.value[0].game;
+    selectedMode.value = games.value[0].modes?.[0] || 'easy';
+  }
+}
 
 async function fetchLeaderboard() {
   loading.value = true;
   error.value = '';
   try {
-    const authData = getAuthData();
-    const headers = authData?.token ? { 'Authorization': `Bearer ${authData.token}` } : {};
-    
-    const response = await api.get('/scores', {
-      params: tab.value === 'duel' ? { gameMode: 'duel', gameType: 'tetris', limit: 50 } : { difficulty: tab.value, limit: 50 },
-      headers
-    });
-    leaderboard.value = response.data;
+    const res = await api.get(`/rank/${selectedGame.value}/${selectedMode.value}`, { params: { limit: 100 } });
+    leaderboard.value = res?.data?.items || [];
   } catch (err) {
     console.error('获取排行榜失败:', err);
     error.value = '获取排行榜失败，请稍后重试';
@@ -38,8 +65,15 @@ async function fetchLeaderboard() {
   }
 }
 
-function changeTab(next) {
-  tab.value = next;
+function changeGame(next) {
+  selectedGame.value = next;
+  const nextModes = modesForGame.value;
+  selectedMode.value = nextModes[0] || 'easy';
+  fetchLeaderboard();
+}
+
+function changeMode(next) {
+  selectedMode.value = next;
   fetchLeaderboard();
 }
 
@@ -47,16 +81,9 @@ function goBack() {
   emit('back');
 }
 
-function openReplay(entry) {
-  replayModal.value = { open: true, entry };
-}
-
-function closeReplay() {
-  replayModal.value = { open: false, entry: null };
-}
-
-onMounted(() => {
-  fetchLeaderboard();
+onMounted(async () => {
+  await fetchConfig();
+  await fetchLeaderboard();
 });
 </script>
 
@@ -69,33 +96,26 @@ onMounted(() => {
       </div>
 
       <div class="difficulty-tabs">
-        <button 
+        <button
+          v-for="g in games"
+          :key="g.game"
           class="tab"
-          :class="{ active: tab === 'easy' }"
-          @click="changeTab('easy')"
+          :class="{ active: selectedGame === g.game }"
+          @click="changeGame(g.game)"
         >
-          简单
+          {{ gameLabel(g.game) }}
         </button>
-        <button 
+      </div>
+
+      <div class="difficulty-tabs secondary">
+        <button
+          v-for="m in modesForGame"
+          :key="m"
           class="tab"
-          :class="{ active: tab === 'duel' }"
-          @click="changeTab('duel')"
+          :class="{ active: selectedMode === m }"
+          @click="changeMode(m)"
         >
-          对战
-        </button>
-        <button 
-          class="tab"
-          :class="{ active: tab === 'medium' }"
-          @click="changeTab('medium')"
-        >
-          中等
-        </button>
-        <button 
-          class="tab"
-          :class="{ active: tab === 'hard' }"
-          @click="changeTab('hard')"
-        >
-          困难
+          {{ modeLabel(m) }}
         </button>
       </div>
 
@@ -115,79 +135,46 @@ onMounted(() => {
       </div>
 
       <div v-else class="leaderboard-list">
-        <template v-if="tab === 'duel'">
-          <div class="duel-list">
-            <div v-if="leaderboard.filter(isDuelRecord).length === 0" class="empty">
-              <p>暂无对战记录</p>
-              <p class="empty-hint">去和好友来一局吧！</p>
-            </div>
-            <template v-else>
-              <div
-                v-for="entry in leaderboard.filter(isDuelRecord)"
-                :key="entry._id"
-                class="duel-card"
-                @click="openReplay(entry)"
-              >
-                <div class="duel-side" :class="{ winner: getDuelWinner(entry) === 'A' }">
-                  <div v-if="getDuelWinner(entry) === 'A'" class="winner-stamp">胜</div>
-                  <div class="duel-name">{{ getDuelNames(entry).aName }}</div>
-                  <div class="duel-score">A {{ getDuelScores(entry).aScore }}分</div>
-                </div>
-                <div class="duel-center">VS</div>
-                <div class="duel-side" :class="{ winner: getDuelWinner(entry) === 'B' }">
-                  <div v-if="getDuelWinner(entry) === 'B'" class="winner-stamp">胜</div>
-                  <div class="duel-name">{{ getDuelNames(entry).bName }}</div>
-                  <div class="duel-score">B {{ getDuelScores(entry).bScore }}分</div>
-                </div>
-                <div class="duel-meta">
-                  <span class="duel-diff">{{ difficultyLabel(entry.difficulty) }}</span>
-                  <span class="duel-date">{{ new Date(entry.createdAt).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }}</span>
-                </div>
-              </div>
-            </template>
+        <div
+          v-for="(entry, index) in leaderboard"
+          :key="entry.id"
+          class="rank-card"
+          :class="{
+            'rank-1': index === 0,
+            'rank-2': index === 1,
+            'rank-3': index === 2
+          }"
+        >
+          <div class="rank">
+            <span v-if="index === 0" class="medal">🥇</span>
+            <span v-else-if="index === 1" class="medal">🥈</span>
+            <span v-else-if="index === 2" class="medal">🥉</span>
+            <span v-else class="rank-number">{{ index + 1 }}</span>
           </div>
-        </template>
-        <template v-else>
-          <div 
-            v-for="(entry, index) in leaderboard" 
-            :key="entry._id"
-            class="leaderboard-item"
-            :class="{ 
-              'rank-1': index === 0,
-              'rank-2': index === 1,
-              'rank-3': index === 2
-            }"
-          >
-            <div class="rank">
-              <span v-if="index === 0" class="medal">🥇</span>
-              <span v-else-if="index === 1" class="medal">🥈</span>
-              <span v-else-if="index === 2" class="medal">🥉</span>
-              <span v-else class="rank-number">{{ index + 1 }}</span>
-            </div>
-            <div class="player-info">
-              <div class="player-name">{{ entry.playerName }}</div>
-              <div class="player-meta">
-                <span class="score">{{ entry.score }}分</span>
-                <span v-if="entry.isVictory" class="victory-badge">✓ 通关</span>
-              </div>
-            </div>
-            <div class="date">
-              {{ new Date(entry.createdAt).toLocaleDateString('zh-CN', { 
-                month: 'short', 
-                day: 'numeric' 
-              }) }}
-            </div>
-          </div>
-        </template>
-      </div>
 
-      <div v-if="replayModal.open" class="replay-overlay" @click.self="closeReplay">
-        <div class="replay-modal">
-          <div class="replay-header">
-            <div class="replay-title">对战回放数据</div>
-            <button class="replay-close" @click="closeReplay">×</button>
+          <div class="rank-body">
+            <div class="rank-side">
+              <div class="rank-avatar">{{ avatarText(entry.playerId) }}</div>
+              <div class="rank-name">{{ entry.playerId }}</div>
+              <div class="rank-score" v-if="selectedMode === 'pvp'">{{ entry.score }}分</div>
+              <div class="rank-score" v-else-if="selectedMode === 'coop'">总分 {{ entry.rankScore ?? entry.score }}分</div>
+              <div class="rank-score" v-else>{{ entry.score }}分</div>
+            </div>
+
+            <div v-if="selectedMode === 'pvp' || selectedMode === 'coop'" class="rank-center">
+              {{ selectedMode === 'coop' ? '合作' : 'VS' }}
+            </div>
+
+            <div v-if="selectedMode === 'pvp' || selectedMode === 'coop'" class="rank-side right">
+              <div class="rank-avatar">{{ avatarText(entry.partnerId) }}</div>
+              <div class="rank-name">{{ entry.partnerId || '-' }}</div>
+              <div v-if="selectedMode === 'pvp'" class="rank-score">{{ (entry.partnerScore ?? 0) }}分</div>
+            </div>
+
+            <div class="rank-meta">
+              {{ new Date(entry.timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) }}
+            </div>
           </div>
-          <pre class="replay-content">{{ JSON.stringify(replayModal.entry?.duel?.replay || replayModal.entry, null, 2) }}</pre>
         </div>
       </div>
     </div>
@@ -629,6 +616,96 @@ onMounted(() => {
     opacity: 1;
     transform: translateX(0);
   }
+}
+
+.difficulty-tabs.secondary {
+  margin-top: 10px;
+}
+
+.rank-card {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  margin-bottom: 12px;
+}
+
+.rank-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+}
+
+.rank-side {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: center;
+}
+
+.rank-side.right {
+  justify-self: end;
+  text-align: right;
+  grid-template-columns: 1fr 36px;
+}
+
+.rank-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-weight: 800;
+}
+
+.rank-side.right .rank-avatar {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.rank-name {
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-score {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rank-center {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 1px;
+  background: rgba(0,0,0,0.2);
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.rank-meta {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 @media (max-width: 480px) {

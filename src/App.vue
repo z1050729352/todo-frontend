@@ -10,12 +10,13 @@ import TetrisStart from './components/TetrisStart.vue';
 import TetrisGame from './components/TetrisGame.vue';
 import Leaderboard from './components/Leaderboard.vue';
 import LeaderboardView from './components/LeaderboardView.vue';
-import MultiplayerLobby from './components/MultiplayerLobby.vue';
+import RoomScene from './components/RoomScene.vue';
 import ToastContainer from './components/ToastContainer.vue';
 import GlobalLoading from './components/GlobalLoading.vue';
 import { showToast } from './utils/toast';
+import { createInviteInbox } from './utils/inviteInbox';
 
-const appState = ref('auth'); // auth, hub, game-select, multiplayer-lobby, playing, game-over, leaderboard-view
+const appState = ref('auth'); // auth, hub, game-select, room, playing, game-over, leaderboard-view
 const currentGame = ref('');
 const playerName = ref('');
 const difficulty = ref('medium');
@@ -24,6 +25,9 @@ const isVictory = ref(false);
 const isGuest = ref(false);
 const isMultiplayer = ref(false);
 const multiplayerData = ref(null);
+
+const inviteInbox = createInviteInbox(typeof window !== 'undefined' ? window.localStorage : null);
+const inviteProcessing = new Set();
 
 const finalPlayerName = computed(() => {
   if (isMultiplayer.value && multiplayerData.value && multiplayerData.value.opponentName) {
@@ -71,18 +75,32 @@ function setupSocketListeners() {
   const socket = getSocket();
   if (!socket) return;
   
+  socket.off('game_invite');
+  socket.off('room_joined');
+  socket.off('invite_rejected');
+
   socket.on('game_invite', (data) => {
-    // Show invite modal (can be added later)
-    if (window.confirm(`好友 ${data.fromUsername} 邀请你玩 ${data.gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块'}，是否接受？`)) {
-      socket.emit('accept_invite', { fromUserId: data.fromUserId, gameType: data.gameType });
+    const inviteId = String(data?.inviteId || '');
+    const fromUserId = String(data?.fromUserId || '');
+    const gameType = String(data?.gameType || '');
+    const fromUsername = String(data?.fromUsername || '');
+    if (!inviteId || !fromUserId || !gameType) return;
+    if (!inviteInbox.shouldPrompt(inviteId)) return;
+    if (inviteProcessing.has(inviteId)) return;
+    inviteProcessing.add(inviteId);
+
+    const ok = window.confirm(`好友 ${fromUsername} 邀请你玩 ${gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块'}，是否接受？`);
+    inviteInbox.markHandled(inviteId, ok ? 'accepted' : 'rejected');
+    if (ok) {
+      socket.emit('accept_invite', { inviteId, fromUserId, gameType });
     } else {
-      socket.emit('reject_invite', { fromUserId: data.fromUserId });
+      socket.emit('reject_invite', { inviteId, fromUserId, gameType });
     }
+    setTimeout(() => inviteProcessing.delete(inviteId), 1200);
   });
 
   socket.on('room_joined', (data) => {
-    // Proceed to multiplayer lobby
-    appState.value = 'multiplayer-lobby';
+    appState.value = 'room';
     currentGame.value = data.gameType;
     isMultiplayer.value = true;
     multiplayerData.value = data;
@@ -198,9 +216,9 @@ function viewLeaderboard() {
       @back="handleLeaderboardBack"
     />
 
-    <!-- 联机大厅 -->
-    <MultiplayerLobby
-      v-else-if="appState === 'multiplayer-lobby'"
+    <!-- 房间 -->
+    <RoomScene
+      v-else-if="appState === 'room'"
       :roomData="multiplayerData"
       :playerName="playerName"
       @startGame="startMultiplayerGame"
@@ -260,6 +278,8 @@ function viewLeaderboard() {
       :difficulty="difficulty"
       :isVictory="isVictory"
       :gameType="currentGame"
+      :isMultiplayer="isMultiplayer"
+      :roomData="multiplayerData"
       @restart="backToGameSelect"
       @backToHub="backToHub"
     />

@@ -2,7 +2,7 @@ import axios from 'axios';
 import { beginLoading, endLoading } from './loading';
 
 export function getApiBaseUrl() {
-  const base = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:12580/api' : '/api');
+  const base = import.meta.env.VITE_API_URL || '/api';
   return String(base).replace(/\/$/, '');
 }
 
@@ -83,4 +83,3 @@ export async function apiFetchJson(input, init = {}) {
 
   return data;
 }
-

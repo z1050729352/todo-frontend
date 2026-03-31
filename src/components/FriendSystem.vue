@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { getAuthData } from '../utils/auth';
 import { getSocket } from '../socket';
 import { showToast } from '../utils/toast';
@@ -17,8 +17,38 @@ const showModal = ref(false);
 const onlineStatus = ref({});
 const inviteCooldowns = ref({});
 
-let statusInterval = null;
 let inviteCooldownInterval = null;
+let fallbackSyncInterval = null;
+const lastOnlineToastAt = new Map();
+
+const FRIENDS_CACHE_KEY = 'friends_cache_v1';
+const FRIENDS_STATUS_CACHE_KEY = 'friends_status_cache_v1';
+
+function safeParse(json) {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function loadCache() {
+  if (typeof window === 'undefined') return;
+  const friendsRaw = window.localStorage.getItem(FRIENDS_CACHE_KEY);
+  const statusRaw = window.localStorage.getItem(FRIENDS_STATUS_CACHE_KEY);
+  const cachedFriends = friendsRaw ? safeParse(friendsRaw) : null;
+  const cachedStatus = statusRaw ? safeParse(statusRaw) : null;
+  if (Array.isArray(cachedFriends)) friends.value = cachedFriends;
+  if (cachedStatus && typeof cachedStatus === 'object') onlineStatus.value = cachedStatus;
+}
+
+function persistCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(FRIENDS_CACHE_KEY, JSON.stringify(friends.value || []));
+    window.localStorage.setItem(FRIENDS_STATUS_CACHE_KEY, JSON.stringify(onlineStatus.value || {}));
+  } catch {}
+}
 
 async function fetchFriends() {
   if (props.isGuest) return;
@@ -31,7 +61,7 @@ async function fetchFriends() {
     });
     friends.value = data.friends || [];
     requests.value = data.requests || [];
-    checkOnlineStatus();
+    subscribeOnlineStatus();
   } catch (err) {
     console.error(err);
   }
@@ -79,17 +109,23 @@ async function handleRequest(requestId, action) {
       },
       body: { requestId, action }
     });
-    fetchFriends();
+    requests.value = (requests.value || []).filter((r) => String(r?._id) !== String(requestId));
+    if (action === 'accepted') {
+      showToast('已接受好友请求', 'success');
+    } else {
+      showToast('已拒绝好友请求', 'info');
+    }
   } catch (err) {
     console.error(err);
   }
 }
 
-function checkOnlineStatus() {
+function subscribeOnlineStatus() {
   const socket = getSocket();
-  if (socket && friends.value.length > 0) {
-    socket.emit('get_online_status', friends.value.map(f => f.id));
-  }
+  if (!socket) return;
+  const ids = (friends.value || []).map((f) => f?.id).filter(Boolean);
+  if (ids.length === 0) return;
+  socket.emit('subscribe_friends_status', { friendIds: ids });
 }
 
 function getInviteKey(friendId, gameType) {
@@ -117,14 +153,65 @@ function inviteFriend(friendId, gameType) {
 }
 
 onMounted(() => {
+  loadCache();
   fetchFriends();
   const socket = getSocket();
   if (socket) {
     socket.on('online_status_update', (status) => {
-      onlineStatus.value = status;
+      if (!status || typeof status !== 'object') return;
+      onlineStatus.value = { ...(onlineStatus.value || {}), ...status };
+      persistCache();
+    });
+    socket.on('friend_status_update', (payload) => {
+      const friendId = String(payload?.friendId || '');
+      if (!friendId) return;
+      const online = Boolean(payload?.online);
+      const prev = Boolean(onlineStatus.value?.[friendId]);
+      onlineStatus.value = { ...(onlineStatus.value || {}), [friendId]: online };
+      persistCache();
+      if (!prev && online) {
+        const now = Date.now();
+        const lastAt = lastOnlineToastAt.get(friendId) || 0;
+        if (now - lastAt >= 8000) {
+          lastOnlineToastAt.set(friendId, now);
+          const name = payload?.username || (friends.value || []).find((f) => f?.id === friendId)?.username || '好友';
+          showToast(`您的好友${name}已上线`, 'info', 5000);
+        }
+      }
+    });
+    socket.on('friend_added', (payload) => {
+      const friend = payload?.friend;
+      const id = String(friend?.id || '');
+      const username = String(friend?.username || '');
+      if (!id || !username) return;
+      const exists = (friends.value || []).some((f) => String(f?.id) === id);
+      if (!exists) {
+        friends.value = [...(friends.value || []), { id, username }];
+        persistCache();
+        subscribeOnlineStatus();
+      }
+    });
+    socket.on('friend_request_created', (payload) => {
+      const request = payload?.request;
+      const requesterName = String(request?.requester?.username || '');
+      if (requesterName) {
+        showToast(`收到来自 ${requesterName} 的好友请求`, 'info', 5000);
+      } else {
+        showToast('收到新的好友请求', 'info', 5000);
+      }
+      fetchFriends();
+    });
+    socket.on('connect', () => {
+      subscribeOnlineStatus();
     });
   }
-  statusInterval = setInterval(checkOnlineStatus, 5000);
+  fallbackSyncInterval = setInterval(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const ids = (friends.value || []).map((f) => f?.id).filter(Boolean);
+    if (ids.length === 0) return;
+    socket.emit('get_online_status', ids);
+  }, 30000);
   inviteCooldownInterval = setInterval(() => {
     const next = {};
     Object.entries(inviteCooldowns.value).forEach(([key, value]) => {
@@ -135,12 +222,25 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  clearInterval(statusInterval);
+  clearInterval(fallbackSyncInterval);
   clearInterval(inviteCooldownInterval);
   const socket = getSocket();
   if (socket) {
     socket.off('online_status_update');
+    socket.off('friend_status_update');
+    socket.off('friend_added');
+    socket.off('friend_request_created');
+    socket.off('connect');
   }
+});
+
+watch(friends, () => {
+  persistCache();
+  subscribeOnlineStatus();
+}, { deep: true });
+
+watch(showModal, (open) => {
+  if (open) fetchFriends();
 });
 
 </script>

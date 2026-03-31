@@ -29,7 +29,31 @@ export const getAuthData = () => {
         const decryptedStr = bytes.toString(CryptoJS.enc.Utf8);
         
         if (!decryptedStr) return null;
-        return JSON.parse(decryptedStr);
+        const parsed = JSON.parse(decryptedStr);
+        if (!parsed || typeof parsed !== 'object') return null;
+        if (!parsed.token) return parsed;
+        if (parsed.user && parsed.user.id) return parsed;
+        const token = String(parsed.token || '');
+        const parts = token.split('.');
+        if (parts.length < 2) return parsed;
+        const payloadRaw = parts[1];
+        const base64 = payloadRaw.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        let payload = null;
+        try {
+            payload = JSON.parse(atob(padded));
+        } catch {
+            payload = null;
+        }
+        const id = payload && (payload.id || payload._id);
+        const username = payload && payload.username;
+        if (!id) return parsed;
+        const normalized = {
+            ...parsed,
+            username: parsed.username || username,
+            user: { ...(parsed.user || {}), id: String(id), username: String(parsed.username || username || '') }
+        };
+        return normalized;
     } catch (e) {
         console.error('Get auth data error:', e);
         localStorage.removeItem('game_auth_v2');

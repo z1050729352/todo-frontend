@@ -87,6 +87,7 @@ const handleLoginSuccess = (data) => {
   const { token, user } = data;
   const loginState = {
     token,
+    user: { id: user.id, username: user.username },
     username: user.username,
     expire: Date.now() + 7 * 24 * 60 * 60 * 1000 // 有效期7天，对应后端
   };

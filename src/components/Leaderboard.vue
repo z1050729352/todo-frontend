@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { getAuthData } from '../utils/auth';
 import { api } from '../utils/api';
 
@@ -12,6 +12,14 @@ const props = defineProps({
     type: String,
     default: 'plane-war'
   },
+  isMultiplayer: {
+    type: Boolean,
+    default: false
+  },
+  roomData: {
+    type: Object,
+    default: null
+  },
   isGuest: {
     type: Boolean,
     default: false
@@ -23,13 +31,18 @@ const emit = defineEmits(['restart', 'backToHub']);
 const leaderboard = ref([]);
 const currentRank = ref(null);
 const loading = ref(true);
-const savedScoreId = ref(null);
+const savedEntryId = ref(null);
 
 const difficultyLabels = {
   easy: '简单',
   medium: '中等',
   hard: '困难'
 };
+
+const rankTitle = computed(() => {
+  if (props.isMultiplayer) return props.gameType === 'tetris' ? '对战' : '组队';
+  return difficultyLabels[props.difficulty] || props.difficulty;
+});
 
 async function saveScore() {
   if (props.isGuest) {
@@ -48,22 +61,22 @@ async function saveScore() {
       difficulty: props.difficulty
     });
     
+    const game = props.gameType === 'tetris' ? 'tetris' : 'aircraft';
+    const mode = props.isMultiplayer ? (game === 'tetris' ? 'pvp' : 'coop') : props.difficulty;
     const payload = {
       score: props.score,
-      difficulty: props.difficulty,
-      gameType: props.gameType
+      duration: 0,
+      roomId: props.roomData?.roomId,
+      partnerId: props.roomData?.opponentName
     };
-    if (props.gameType !== 'tetris') {
-      payload.customPlayerName = props.playerName;
-    }
-    const response = await api.post('/scores', payload, {
+
+    const response = await api.post(`/rank/${game}/${mode}`, payload, {
       headers: {
         'Authorization': `Bearer ${authData.token}`
       }
     });
     
-    console.log('分数保存成功:', response.data);
-    savedScoreId.value = response.data._id;
+    savedEntryId.value = response.data.id;
     await fetchLeaderboard();
     await fetchRank();
   } catch (error) {
@@ -76,16 +89,10 @@ async function saveScore() {
 
 async function fetchLeaderboard() {
   try {
-    console.log('正在获取排行榜...');
-    const response = await api.get('/scores', {
-      params: {
-        difficulty: props.difficulty,
-        gameType: props.gameType,
-        limit: 50
-      }
-    });
-    console.log('排行榜数据:', response.data);
-    leaderboard.value = response.data;
+    const game = props.gameType === 'tetris' ? 'tetris' : 'aircraft';
+    const mode = props.isMultiplayer ? (game === 'tetris' ? 'pvp' : 'coop') : props.difficulty;
+    const response = await api.get(`/rank/${game}/${mode}`, { params: { limit: 100 } });
+    leaderboard.value = response.data?.items || [];
   } catch (error) {
     console.error('获取排行榜失败:', error);
     console.error('错误详情:', error.response?.data || error.message);
@@ -93,16 +100,14 @@ async function fetchLeaderboard() {
 }
 
 async function fetchRank() {
-  if (!savedScoreId.value) {
+  if (!savedEntryId.value) {
     loading.value = false;
     return;
   }
   
   try {
-    console.log('正在获取排名...');
-    const response = await api.get(`/scores/rank/${savedScoreId.value}`);
-    console.log('排名数据:', response.data);
-    currentRank.value = response.data.rank;
+    const idx = leaderboard.value.findIndex((e) => e && e.id === savedEntryId.value);
+    currentRank.value = idx >= 0 ? idx + 1 : null;
   } catch (error) {
     console.error('获取排名失败:', error);
     console.error('错误详情:', error.response?.data || error.message);
@@ -175,25 +180,25 @@ onMounted(async () => {
       </div>
 
       <div class="leaderboard-section">
-        <h2>排行榜 - {{ difficultyLabels[difficulty] }}</h2>
+        <h2>排行榜 - {{ rankTitle }}</h2>
         
         <div v-if="loading" class="loading">加载中...</div>
         
         <div v-else-if="leaderboard.length > 0" class="leaderboard-list">
           <div 
             v-for="(item, index) in leaderboard" 
-            :key="item._id"
+            :key="item.id"
             class="leaderboard-item"
             :class="{ 
-              highlight: item._id === savedScoreId,
+              highlight: item.id === savedEntryId,
               top3: index < 3 
             }"
           >
             <div class="rank-badge" :class="`rank-${index + 1}`">
               {{ index + 1 }}
             </div>
-            <div class="player-name">{{ item.playerName }}</div>
-            <div class="player-score">{{ item.score }}</div>
+            <div class="player-name">{{ item.playerId }}</div>
+            <div class="player-score">{{ item.rankScore ?? item.score }}</div>
           </div>
         </div>
         
