@@ -23,6 +23,10 @@ const props = defineProps({
   isGuest: {
     type: Boolean,
     default: false
+  },
+  resultMeta: {
+    type: Object,
+    default: null
   }
 });
 
@@ -39,28 +43,130 @@ const difficultyLabels = {
   hard: '困难'
 };
 
+const authUserName = computed(() => String(getAuthData()?.username || ''));
+
+const gameLabel = computed(() => props.gameType === 'tetris' ? '俄罗斯方块' : '飞机大战');
+const modeLabel = computed(() => {
+  if (props.isMultiplayer) return props.gameType === 'tetris' ? '双人对战' : '双人合作';
+  return `单人·${difficultyLabels[props.difficulty] || props.difficulty}`;
+});
 const rankTitle = computed(() => {
   if (props.isMultiplayer) return props.gameType === 'tetris' ? '对战' : '组队';
   return difficultyLabels[props.difficulty] || props.difficulty;
 });
 
+const resultKey = computed(() => {
+  if (props.gameType === 'plane-war' && props.isMultiplayer) return 'plane-coop';
+  if (props.gameType === 'tetris' && props.isMultiplayer) {
+    const result = String(props.resultMeta?.result || '');
+    if (result === 'draw') return 'tetris-draw';
+    if (result === 'win' || props.isVictory) return 'tetris-win';
+    return 'tetris-lose';
+  }
+  if (props.gameType === 'plane-war') return props.isVictory ? 'plane-clear' : 'plane-fail';
+  if (props.gameType === 'tetris') return props.isVictory ? 'tetris-clear' : 'tetris-over';
+  return 'default';
+});
+
+const heroConfig = computed(() => {
+  const map = {
+    'plane-clear': { icon: '✈️', title: '制空成功，任务通关', subtitle: '火力与走位都在线，这局飞得漂亮。', tone: 'victory' },
+    'plane-fail': { icon: '⚠️', title: '战机受损，本局结束', subtitle: '再来一局，下一次会更稳。', tone: 'normal' },
+    'tetris-clear': { icon: '🧱', title: '连消通关，节奏封神', subtitle: '压线操作很极限，节奏拿捏得非常好。', tone: 'victory' },
+    'tetris-over': { icon: '🧩', title: '方块堆满，回合结束', subtitle: '这局先记账，下一局冲更高分。', tone: 'normal' },
+    'plane-coop': { icon: '🤝', title: '协作任务完成', subtitle: '合作愉快，双机编队非常默契。', tone: 'coop' },
+    'tetris-win': { icon: '🏆', title: '恭喜胜利', subtitle: '攻防节奏掌控到位，拿下这一局。', tone: 'victory' },
+    'tetris-lose': { icon: '💪', title: '很遗憾本次落败', subtitle: '差距不大，调整节奏就能翻盘。', tone: 'normal' },
+    'tetris-draw': { icon: '⚖️', title: '势均力敌，平局收场', subtitle: '双方发挥都很稳，下局决胜。', tone: 'coop' },
+    default: { icon: '🎮', title: '本局结束', subtitle: '状态在线，继续挑战更高纪录。', tone: 'normal' }
+  };
+  return map[resultKey.value] || map.default;
+});
+
+function normalizeScore(val) {
+  const n = Number(val);
+  return Number.isFinite(n) ? Math.round(n) : 0;
+}
+
+function getEntryScore(entry) {
+  return normalizeScore(entry?.rankScore ?? entry?.score ?? 0);
+}
+
+const mySavedEntry = computed(() => leaderboard.value.find((item) => item?.id === savedEntryId.value) || null);
+const globalBestScore = computed(() => {
+  if (!leaderboard.value.length) return null;
+  return leaderboard.value.reduce((best, item) => Math.max(best, getEntryScore(item)), 0);
+});
+const previousPersonalBest = computed(() => {
+  const me = authUserName.value;
+  if (!me) return null;
+  const ownHistory = leaderboard.value
+    .filter((item) => item?.playerId === me && item?.id !== savedEntryId.value)
+    .map(getEntryScore);
+  if (!ownHistory.length) return null;
+  return Math.max(...ownHistory);
+});
+const isPersonalBest = computed(() => {
+  if (!mySavedEntry.value) return false;
+  if (previousPersonalBest.value == null) return true;
+  return getEntryScore(mySavedEntry.value) > previousPersonalBest.value;
+});
+const isGlobalBest = computed(() => {
+  if (!mySavedEntry.value || globalBestScore.value == null) return false;
+  return getEntryScore(mySavedEntry.value) >= globalBestScore.value;
+});
+const personalDelta = computed(() => {
+  if (!mySavedEntry.value || previousPersonalBest.value == null) return null;
+  return Math.max(0, getEntryScore(mySavedEntry.value) - previousPersonalBest.value);
+});
+
+const resultTags = computed(() => {
+  const tags = [
+    gameLabel.value,
+    modeLabel.value
+  ];
+  if (!props.isGuest && !loading.value && currentRank.value) tags.push(`当前排名 #${currentRank.value}`);
+  if (props.isGuest) tags.push('游客模式');
+  return tags;
+});
+
+const highlights = computed(() => {
+  const list = [];
+  if (props.isGuest) {
+    list.push('登录后可保存战绩并参与全球排行');
+    return list;
+  }
+  if (loading.value) return list;
+
+  if (currentRank.value === 1) list.push('恭喜登顶本模式排行榜');
+  else if (currentRank.value && currentRank.value <= 3) list.push('成功进入本模式排行榜前三');
+
+  if (mySavedEntry.value && isGlobalBest.value && currentRank.value === 1) list.push('你刚刚打出了当前最高纪录');
+  if (mySavedEntry.value && isPersonalBest.value) {
+    if (previousPersonalBest.value == null) list.push('首个个人历史成绩已记录');
+    else if ((personalDelta.value || 0) > 0) list.push(`个人新纪录，较历史最好提升 ${personalDelta.value}`);
+  }
+
+  if (props.gameType === 'plane-war' && props.isMultiplayer) {
+    const teammateScore = normalizeScore(props.resultMeta?.teammateScore || 0);
+    list.push(`协作得分：你 ${normalizeScore(props.score)} / 队友 ${teammateScore}`);
+  }
+  if (props.gameType === 'tetris' && props.isMultiplayer) {
+    const enemy = normalizeScore(props.resultMeta?.opponentScore || 0);
+    list.push(`对战比分：你 ${normalizeScore(props.score)} : ${enemy} 对手`);
+  }
+  return list.slice(0, 4);
+});
+
 async function saveScore() {
   if (props.isGuest) {
-    console.log('游客模式，跳过分数保存');
+    await fetchLeaderboard();
+    loading.value = false;
     return;
   }
   try {
     const authData = getAuthData();
-    if (!authData?.token) {
-      console.error('No auth token found');
-      return;
-    }
-
-    console.log('正在保存分数...', {
-      score: props.score,
-      difficulty: props.difficulty
-    });
-    
+    if (!authData?.token) return;
     const game = props.gameType === 'tetris' ? 'tetris' : 'aircraft';
     const mode = props.isMultiplayer ? (game === 'tetris' ? 'pvp' : 'coop') : props.difficulty;
     const payload = {
@@ -69,20 +175,15 @@ async function saveScore() {
       roomId: props.roomData?.roomId,
       partnerId: props.roomData?.opponentName
     };
-
     const response = await api.post(`/rank/${game}/${mode}`, payload, {
-      headers: {
-        'Authorization': `Bearer ${authData.token}`
-      }
+      headers: { Authorization: `Bearer ${authData.token}` }
     });
-    
     savedEntryId.value = response.data.id;
     await fetchLeaderboard();
     await fetchRank();
   } catch (error) {
     console.error('保存分数失败:', error);
     console.error('错误详情:', error.response?.data || error.message);
-    // 即使保存失败也尝试获取排行榜
     loading.value = false;
   }
 }
@@ -104,7 +205,6 @@ async function fetchRank() {
     loading.value = false;
     return;
   }
-  
   try {
     const idx = leaderboard.value.findIndex((e) => e && e.id === savedEntryId.value);
     currentRank.value = idx >= 0 ? idx + 1 : null;
@@ -124,20 +224,6 @@ function handleBackToHub() {
   emit('backToHub');
 }
 
-function getVictoryMessage() {
-  const messages = [
-    '卧槽！20分钟不眨眼？你是赛博朋克吗？',
-    '传说中的"手速单身30年"就是你吧？',
-    '兄弟，你这操作NASA都想挖你！',
-    '这手速，建议去参加电竞世界杯！',
-    '我怀疑你不是人类，你是AI对吧？',
-    '20分钟无伤通关？开挂了吧兄弟！',
-    '你的反应速度已经超越人类极限了！',
-    '建议改名叫"飞机大战终结者"！'
-  ];
-  return messages[Math.floor(Math.random() * messages.length)];
-}
-
 onMounted(async () => {
   await saveScore();
 });
@@ -145,76 +231,70 @@ onMounted(async () => {
 
 <template>
   <div class="leaderboard">
-    <div class="stars"></div>
-    <div class="content" :class="{ victory: isVictory }">
-      <h1 class="title" v-if="!isVictory">🏆 游戏结束</h1>
-      <div v-else class="victory-banner">
-        <h1 class="victory-title">🎉 恭喜通关！🎉</h1>
-        <div class="victory-messages">
-          <p class="victory-msg">{{ getVictoryMessage() }}</p>
-          <p class="victory-subtitle">你已经是传说中的飞行员了！</p>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <div class="content" :class="[`tone-${heroConfig.tone}`]">
+      <section class="hero">
+        <div class="hero-icon">{{ heroConfig.icon }}</div>
+        <h1 class="hero-title">{{ heroConfig.title }}</h1>
+        <p class="hero-subtitle">{{ heroConfig.subtitle }}</p>
+        <div class="tags">
+          <span v-for="tag in resultTags" :key="tag" class="tag">{{ tag }}</span>
         </div>
-      </div>
-      
-      <div class="result-card">
+      </section>
+
+      <section class="result-card">
         <div class="result-item">
           <span class="result-label">玩家</span>
           <span class="result-value">{{ playerName }}</span>
         </div>
+        <div v-if="isMultiplayer && roomData?.opponentName" class="result-item">
+          <span class="result-label">{{ gameType === 'tetris' ? '对手' : '队友' }}</span>
+          <span class="result-value">{{ roomData.opponentName }}</span>
+        </div>
         <div class="result-item">
-          <span class="result-label">难度</span>
-          <span class="result-value">{{ difficultyLabels[difficulty] }}</span>
+          <span class="result-label">模式</span>
+          <span class="result-value">{{ modeLabel }}</span>
         </div>
         <div class="result-item highlight">
-          <span class="result-label">得分</span>
-          <span class="result-value score">{{ score }}</span>
+          <span class="result-label">{{ gameType === 'tetris' ? '本局分数' : '任务积分' }}</span>
+          <span class="result-value score">{{ normalizeScore(score) }}</span>
         </div>
         <div v-if="!isGuest && !loading && currentRank" class="result-item">
-          <span class="result-label">排名</span>
+          <span class="result-label">世界排名</span>
           <span class="result-value rank">第 {{ currentRank }} 名</span>
         </div>
-        <div v-else-if="isGuest" class="result-item">
-          <span class="result-label">提示</span>
-          <span class="result-value" style="font-size: 0.9rem; opacity: 0.8;">登录后即可参与全球排行！</span>
-        </div>
-      </div>
+      </section>
 
-      <div class="leaderboard-section">
+      <section v-if="highlights.length" class="highlights">
+        <h2>战报亮点</h2>
+        <div class="highlight-list">
+          <p v-for="line in highlights" :key="line" class="highlight-item">{{ line }}</p>
+        </div>
+      </section>
+
+      <section class="leaderboard-section">
         <h2>排行榜 - {{ rankTitle }}</h2>
-        
-        <div v-if="loading" class="loading">加载中...</div>
-        
+        <div v-if="loading" class="loading">正在加载排行榜...</div>
         <div v-else-if="leaderboard.length > 0" class="leaderboard-list">
-          <div 
-            v-for="(item, index) in leaderboard" 
+          <div
+            v-for="(item, index) in leaderboard"
             :key="item.id"
             class="leaderboard-item"
-            :class="{ 
-              highlight: item.id === savedEntryId,
-              top3: index < 3 
-            }"
+            :class="{ highlight: item.id === savedEntryId, top3: index < 3 }"
           >
-            <div class="rank-badge" :class="`rank-${index + 1}`">
-              {{ index + 1 }}
-            </div>
+            <div class="rank-badge" :class="`rank-${index + 1}`">{{ index + 1 }}</div>
             <div class="player-name">{{ item.playerId }}</div>
-            <div class="player-score">{{ item.rankScore ?? item.score }}</div>
+            <div class="player-score">{{ getEntryScore(item) }}</div>
           </div>
         </div>
-        
-        <div v-else class="empty">
-          暂无记录，你是第一个！
-        </div>
-      </div>
+        <div v-else class="empty">暂无记录，你是第一个</div>
+      </section>
 
-      <div class="button-group">
-        <button class="restart-btn" @click="handleRestart">
-          再玩一次
-        </button>
-        <button class="hub-btn" @click="handleBackToHub">
-          返回游戏中心
-        </button>
-      </div>
+      <section class="button-group">
+        <button class="restart-btn" @click="handleRestart">再玩一次</button>
+        <button class="hub-btn" @click="handleBackToHub">返回游戏中心</button>
+      </section>
     </div>
   </div>
 </template>
@@ -223,224 +303,299 @@ onMounted(async () => {
 .leaderboard {
   width: 100%;
   height: 100%;
-  background: linear-gradient(180deg, #0a0e27 0%, #1a1f3a 100%);
+  background: radial-gradient(circle at 20% 10%, #273469 0%, #0a1025 40%, #060910 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   overflow-y: auto;
-  padding: 20px 0;
-  -webkit-overflow-scrolling: touch;
+  padding: 18px 0;
 }
 
-.stars {
+.bg-orb {
   position: fixed;
-  width: 100%;
-  height: 100%;
-  background-image: 
-    radial-gradient(2px 2px at 20% 30%, white, transparent),
-    radial-gradient(2px 2px at 60% 70%, white, transparent),
-    radial-gradient(1px 1px at 50% 50%, white, transparent),
-    radial-gradient(1px 1px at 80% 10%, white, transparent),
-    radial-gradient(2px 2px at 90% 60%, white, transparent);
-  background-size: 200% 200%;
-  animation: twinkle 8s ease-in-out infinite;
+  border-radius: 999px;
+  filter: blur(18px);
+  opacity: 0.45;
+  pointer-events: none;
 }
 
-@keyframes twinkle {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+.orb-a {
+  width: 300px;
+  height: 300px;
+  background: #5d8bff;
+  top: -100px;
+  left: -100px;
+  animation: orbFloatA 9s ease-in-out infinite;
+}
+
+.orb-b {
+  width: 260px;
+  height: 260px;
+  background: #ff6a88;
+  right: -70px;
+  bottom: -60px;
+  animation: orbFloatB 10s ease-in-out infinite;
+}
+
+@keyframes orbFloatA {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(35px, 26px); }
+}
+
+@keyframes orbFloatB {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(-26px, -28px); }
 }
 
 .content {
   position: relative;
   z-index: 1;
-  max-width: 500px;
-  width: 90%;
-  max-height: 90%;
-  padding: 1.5rem;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border-radius: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  width: min(540px, 92vw);
+  max-height: 92vh;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(7, 13, 35, 0.82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 46px rgba(0, 0, 0, 0.45);
+  padding: 20px;
 }
 
 .content::-webkit-scrollbar {
   width: 4px;
 }
 
-.content::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-}
-
 .content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
 }
 
-.title {
-  font-size: 2rem;
-  color: #fff;
+.tone-victory {
+  border-color: rgba(255, 215, 110, 0.45);
+  box-shadow: 0 14px 52px rgba(255, 195, 0, 0.25);
+}
+
+.tone-coop {
+  border-color: rgba(113, 232, 255, 0.42);
+  box-shadow: 0 14px 52px rgba(63, 217, 255, 0.2);
+}
+
+.hero {
   text-align: center;
-  margin-bottom: 1.5rem;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+  margin-bottom: 14px;
+  animation: heroIn 0.45s ease;
+}
+
+@keyframes heroIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hero-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 10px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.14);
+  font-size: 28px;
+}
+
+.hero-title {
+  color: #fff;
+  font-size: 1.6rem;
+  font-weight: 900;
+}
+
+.hero-subtitle {
+  margin-top: 8px;
+  color: rgba(233, 240, 255, 0.84);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.tags {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: rgba(242, 246, 255, 0.95);
+  font-size: 0.76rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .result-card {
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 15px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .result-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.14);
 }
 
 .result-item:last-child {
-  border-bottom: none;
-}
-
-.result-item.highlight {
-  padding: 1rem 0;
+  border-bottom: 0;
 }
 
 .result-label {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.9rem;
+  color: rgba(228, 236, 255, 0.68);
+  font-size: 0.88rem;
 }
 
 .result-value {
   color: #fff;
-  font-size: 1.1rem;
-  font-weight: bold;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: right;
 }
 
-.result-value.score {
+.result-item.highlight .result-value.score {
+  color: #ffe66d;
   font-size: 2rem;
-  color: #ffeb3b;
-  text-shadow: 0 0 10px rgba(255, 235, 59, 0.5);
+  line-height: 1.1;
+  text-shadow: 0 0 14px rgba(255, 230, 109, 0.45);
 }
 
 .result-value.rank {
-  color: #4a9eff;
+  color: #9cd3ff;
+}
+
+.highlights {
+  margin-bottom: 12px;
+  border-radius: 14px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(135deg, rgba(65, 115, 255, 0.16), rgba(95, 228, 255, 0.08));
+}
+
+.highlights h2 {
+  font-size: 1rem;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.highlight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.highlight-item {
+  color: rgba(240, 247, 255, 0.92);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .leaderboard-section {
-  margin-bottom: 1.5rem;
+  margin-bottom: 12px;
 }
 
 .leaderboard-section h2 {
   color: #fff;
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
+  font-size: 1.1rem;
   text-align: center;
+  margin-bottom: 10px;
 }
 
-.loading {
+.loading,
+.empty {
   text-align: center;
-  color: rgba(255, 255, 255, 0.7);
-  padding: 2rem;
+  color: rgba(224, 233, 255, 0.7);
+  padding: 18px 10px;
 }
 
 .leaderboard-list {
-  max-height: 300px;
+  max-height: 260px;
   overflow-y: auto;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 10px;
-  padding: 0.5rem;
-}
-
-.leaderboard-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.leaderboard-list::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-
-.leaderboard-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.24);
 }
 
 .leaderboard-item {
   display: flex;
   align-items: center;
-  padding: 0.75rem;
-  margin-bottom: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  transition: all 0.3s;
-}
-
-.leaderboard-item.highlight {
-  background: rgba(74, 158, 255, 0.2);
-  border: 2px solid #4a9eff;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
 }
 
 .leaderboard-item.top3 {
-  background: rgba(255, 215, 0, 0.1);
+  background: rgba(255, 215, 87, 0.12);
+}
+
+.leaderboard-item.highlight {
+  border-color: rgba(118, 200, 255, 0.8);
+  background: rgba(69, 155, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(118, 200, 255, 0.2) inset;
 }
 
 .rank-badge {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   color: #fff;
-  font-weight: bold;
-  margin-right: 1rem;
+  font-size: 0.86rem;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.2);
   flex-shrink: 0;
 }
 
 .rank-badge.rank-1 {
-  background: linear-gradient(135deg, #ffd700, #ffed4e);
-  color: #000;
+  background: linear-gradient(135deg, #ffd76f, #ffedbb);
+  color: #1c1507;
 }
 
 .rank-badge.rank-2 {
-  background: linear-gradient(135deg, #c0c0c0, #e8e8e8);
-  color: #000;
+  background: linear-gradient(135deg, #d1d8e8, #f1f5ff);
+  color: #1e2535;
 }
 
 .rank-badge.rank-3 {
-  background: linear-gradient(135deg, #cd7f32, #e8a87c);
-  color: #000;
+  background: linear-gradient(135deg, #d89963, #f3d3b8);
+  color: #2b1c12;
 }
 
 .player-name {
   flex: 1;
   color: #fff;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .player-score {
-  color: #ffeb3b;
-  font-weight: bold;
-  font-size: 1rem;
-  margin-left: 1rem;
-}
-
-.empty {
-  text-align: center;
-  color: rgba(255, 255, 255, 0.5);
-  padding: 2rem;
+  color: #ffe66d;
+  font-size: 0.96rem;
+  font-weight: 800;
 }
 
 .button-group {
@@ -449,165 +604,55 @@ onMounted(async () => {
   gap: 10px;
 }
 
-.restart-btn, .hub-btn {
+.restart-btn,
+.hub-btn {
   width: 100%;
-  padding: 1rem;
-  border: none;
-  border-radius: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
   color: #fff;
-  font-size: 1.1rem;
-  font-weight: bold;
+  border: none;
+  font-size: 1rem;
+  font-weight: 800;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
 
 .restart-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-}
-
-.restart-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+  background: linear-gradient(135deg, #4f7fff, #9b63ff);
+  box-shadow: 0 8px 20px rgba(91, 122, 255, 0.35);
 }
 
 .hub-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.24);
 }
 
+.restart-btn:hover,
 .hub-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
-.restart-btn:active, .hub-btn:active {
+.restart-btn:active,
+.hub-btn:active {
   transform: translateY(0);
 }
 
 @media (max-width: 480px) {
   .content {
-    padding: 1rem;
-    width: 95%;
+    width: 95vw;
+    padding: 14px;
   }
-  
-  .title {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
+
+  .hero-title {
+    font-size: 1.35rem;
   }
-  
-  .result-card {
-    padding: 1rem;
+
+  .result-item.highlight .result-value.score {
+    font-size: 1.7rem;
   }
-  
-  .result-value.score {
-    font-size: 1.5rem;
-  }
-  
-  .leaderboard-section h2 {
-    font-size: 1.1rem;
-  }
-  
+
   .leaderboard-list {
-    max-height: 250px;
+    max-height: 220px;
   }
-  
-  .leaderboard-item {
-    padding: 0.6rem;
-  }
-  
-  .rank-badge {
-    width: 26px;
-    height: 26px;
-    font-size: 0.85rem;
-  }
-  
-  .player-name {
-    font-size: 0.85rem;
-  }
-  
-  .player-score {
-    font-size: 0.9rem;
-  }
-}
-
-@media (max-height: 700px) {
-  .content {
-    padding: 1rem;
-  }
-  
-  .title {
-    font-size: 1.3rem;
-    margin-bottom: 0.8rem;
-  }
-  
-  .result-card {
-    padding: 1rem;
-    margin-bottom: 1rem;
-  }
-  
-  .result-item {
-    padding: 0.5rem 0;
-  }
-  
-  .leaderboard-section {
-    margin-bottom: 1rem;
-  }
-  
-  .leaderboard-list {
-    max-height: 200px;
-  }
-}
-
-.content.victory {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 140, 0, 0.2));
-  border: 3px solid #ffd700;
-  box-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
-  animation: victoryPulse 2s ease-in-out infinite;
-}
-
-@keyframes victoryPulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
-}
-
-.victory-banner {
-  text-align: center;
-  margin-bottom: 2rem;
-  padding: 1.5rem;
-  background: linear-gradient(135deg, #ffd700, #ff8c00);
-  border-radius: 15px;
-  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4);
-}
-
-.victory-title {
-  font-size: 2.5rem;
-  color: #fff;
-  text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 215, 0, 0.6);
-  margin-bottom: 1rem;
-  animation: victoryShake 0.5s ease-in-out infinite;
-}
-
-@keyframes victoryShake {
-  0%, 100% { transform: rotate(-2deg); }
-  50% { transform: rotate(2deg); }
-}
-
-.victory-messages {
-  margin-top: 1rem;
-}
-
-.victory-msg {
-  font-size: 1.3rem;
-  color: #fff;
-  font-weight: bold;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
-  margin-bottom: 0.5rem;
-}
-
-.victory-subtitle {
-  font-size: 1rem;
-  color: rgba(255, 255, 255, 0.9);
-  font-style: italic;
 }
 </style>

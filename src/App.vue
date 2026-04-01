@@ -8,6 +8,8 @@ import GameStart from './components/GameStart.vue';
 import PlaneGame from './components/PlaneGame.vue';
 import TetrisStart from './components/TetrisStart.vue';
 import TetrisGame from './components/TetrisGame.vue';
+import SnakeStart from './components/SnakeStart.vue';
+import SnakeGame from './components/SnakeGame.vue';
 import Leaderboard from './components/Leaderboard.vue';
 import LeaderboardView from './components/LeaderboardView.vue';
 import RoomScene from './components/RoomScene.vue';
@@ -22,6 +24,7 @@ const playerName = ref('');
 const difficulty = ref('medium');
 const finalScore = ref(0);
 const isVictory = ref(false);
+const resultMeta = ref(null);
 const isGuest = ref(false);
 const isMultiplayer = ref(false);
 const multiplayerData = ref(null);
@@ -139,7 +142,7 @@ function handleLogout() {
 
 function selectGame(gameId) {
   currentGame.value = gameId;
-  if (gameId === 'plane-war' || gameId === 'tetris') {
+  if (gameId === 'plane-war' || gameId === 'tetris' || gameId === 'snake') {
     appState.value = 'game-select';
   }
 }
@@ -150,9 +153,10 @@ function startGame(diff) {
   appState.value = 'playing';
 }
 
-function gameOver(score, victory = false) {
+function gameOver(score, victory = false, meta = null) {
   finalScore.value = score;
   isVictory.value = victory;
+  resultMeta.value = meta;
   appState.value = 'game-over';
 }
 
@@ -161,6 +165,7 @@ function backToHub() {
   currentGame.value = '';
   finalScore.value = 0;
   isVictory.value = false;
+  resultMeta.value = null;
   isMultiplayer.value = false;
   multiplayerData.value = null;
   checkAuth(); // 每次回到主页检查一下登录态
@@ -170,6 +175,7 @@ function backToGameSelect() {
   appState.value = 'game-select';
   finalScore.value = 0;
   isVictory.value = false;
+  resultMeta.value = null;
   isMultiplayer.value = false;
   multiplayerData.value = null;
   checkAuth(); // 返回游戏选择也检查登录态
@@ -268,6 +274,24 @@ function viewLeaderboard() {
       @gameOver="gameOver"
       @backToHub="backToHub"
     />
+
+    <!-- 贪吃蛇 - 开始页面 -->
+    <SnakeStart
+      v-else-if="appState === 'game-select' && currentGame === 'snake'"
+      :playerName="playerName"
+      :isGuest="isGuest"
+      @start="startGame"
+      @back="backToHub"
+    />
+
+    <!-- 贪吃蛇 - 游戏中 -->
+    <SnakeGame
+      v-else-if="appState === 'playing' && currentGame === 'snake'"
+      :playerName="playerName"
+      :isGuest="isGuest"
+      :difficulty="difficulty"
+      @backToHub="backToHub"
+    />
     
     <!-- 飞机大战 - 游戏结束 -->
     <Leaderboard 
@@ -280,6 +304,7 @@ function viewLeaderboard() {
       :gameType="currentGame"
       :isMultiplayer="isMultiplayer"
       :roomData="multiplayerData"
+      :resultMeta="resultMeta"
       @restart="backToGameSelect"
       @backToHub="backToHub"
     />

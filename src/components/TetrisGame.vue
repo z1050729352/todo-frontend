@@ -1199,7 +1199,11 @@ function endGame(victory = false) {
   gameRunning = false;
   cancelAnimationFrame(animationId);
   if (currentBgm) currentBgm.pause();
-  emit('gameOver', score.value, victory);
+  emit('gameOver', score.value, victory, {
+    gameType: 'tetris',
+    mode: 'solo',
+    result: victory ? 'clear' : 'gameover'
+  });
 }
 
 function endMultiplayerGame(sendToOpponent = true) {
@@ -1223,7 +1227,12 @@ function endMultiplayerGame(sendToOpponent = true) {
   const resultText = isVictory ? '你赢了！' : (isDraw ? '平局！' : '你输了！');
   showToast(`比赛结束：${resultText}（你：${score.value}，对方：${opponentScore.value}）`, isVictory ? 'success' : (isDraw ? 'info' : 'warning'), 5000);
   saveDuelRecord();
-  emit('gameOver', score.value, isVictory);
+  emit('gameOver', score.value, isVictory, {
+    gameType: 'tetris',
+    mode: 'pvp',
+    result: isDraw ? 'draw' : (isVictory ? 'win' : 'lose'),
+    opponentScore: opponentScore.value
+  });
 }
 
 async function saveDuelRecord() {

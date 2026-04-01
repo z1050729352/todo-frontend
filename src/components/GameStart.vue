@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps({
   playerName: {
@@ -15,8 +15,8 @@ const props = defineProps({
 const emit = defineEmits(['start', 'back', 'viewLeaderboard']);
 
 const difficulty = ref('medium');
-const showGuide = ref(false); // 显示武器指南
-const weaponDetail = ref(null); // 显示武器详情
+const showGuide = ref(false);
+const detailKey = ref('');
 
 const difficulties = [
   { value: 'easy', label: '简单', desc: '适合新手' },
@@ -24,48 +24,82 @@ const difficulties = [
   { value: 'hard', label: '困难', desc: '极限挑战' }
 ];
 
-const weaponDetails = {
-  laser: {
-    name: '激光束',
-    icon: '⚡',
-    color: '#00FFFF',
-    description: '瞬发蓝色电浆光束，伴有随机电弧。穿透力极强，能瞬间贯穿敌阵。',
-    features: [
-      '攻击形态：长条激光线',
-      '瞬发命中，无弹道延迟',
-      '附带电弧特效，持续贯穿',
-      '特点：攻击范围大，适合清理密集敌人'
-    ]
-  },
-  burst: {
-    name: '爆裂弹',
-    icon: '🔥',
-    color: '#FF8000',
-    description: '发射具有抛物线轨迹的能量球，命中时触发环形冲击波，适合对付集群敌人。',
-    features: [
-      '抛物线弹道',
-      '范围爆炸，引发环形冲击波',
-      '高伤害',
-      '特点：攻击范围随等级增长'
-    ]
-  },
-  explosive: {
-    name: '爆炸弹',
-    icon: '💣',
-    color: '#333333',
-    description: '黑色金属弹体，尾焰呈现摇摆轨迹。命中后产生巨大的蘑菇云特效，威力惊人。',
-    features: [
-      'S型摇摆尾焰',
-      '闪烁警告',
-      '单点重伤，蘑菇云特效',
-      '特点：范围伤害，适合群体攻击'
-    ]
-  }
+const detailMap = {
+  laser: { name: '激光束', icon: '⚡', color: '#7e57c2', description: '高速直线光束，命中快，手感稳。', features: ['基础强度高', '弹道直观，适合持续压制', '等级越高单发越疼'] },
+  burst: { name: '弹幕弹', icon: '🔥', color: '#7e57c2', description: '能量球覆盖面大，清杂兵效率高。', features: ['覆盖范围大', '对群体敌机更友好', '等级提升后范围更明显'] },
+  explosive: { name: '爆炸弹', icon: '💣', color: '#7e57c2', description: '命中后对周围敌机造成范围爆炸，适合密集波次。', features: ['范围补刀能力强', '清杂更稳定', '单体强度不会压过直伤流派'] },
+  pulse: { name: '脉冲弹', icon: '🟦', color: '#7e57c2', description: '高射速直冲型子弹，适合稳定持续输出。', features: ['弹速快', '弹道稳定', '适合中距离持续压血'] },
+  needle: { name: '针刺弹', icon: '🟩', color: '#7e57c2', description: '细长高速，点杀感强，适合精准输出。', features: ['速度最高档', '单发判定干净', '适合追击高威胁目标'] },
+  ion: { name: '离子弹', icon: '🟣', color: '#7e57c2', description: '重质离子球，单发更重，节奏偏稳。', features: ['单发伤害高', '更适合打厚血目标', '输出节奏平滑'] },
+  spread: { name: '散弹', icon: '散弹', color: '#26a69a', description: '同次射击增加弹道数量，提升覆盖面。', features: ['多方向覆盖', '清场效率提升', '单人/组队上限 Lv.6'] },
+  pierce: { name: '破甲', icon: '破甲', color: '#26a69a', description: '降低敌方防御收益，让高防目标更容易处理。', features: ['对高防怪收益高', '与高等级子弹叠加收益更稳', '单人/组队上限 Lv.6（最多降低防御约 42%）'] },
+  rapid: { name: '射速', icon: '射速', color: '#26a69a', description: '缩短开火间隔，提高单位时间输出。', features: ['DPS稳定提升', '操作门槛低', '上限 Lv.5'] },
+  missile: { name: '导弹舱', icon: '导弹', color: '#26a69a', description: '自动辅助导弹，补足空档火力。', features: ['自动索敌', '与主武器独立结算', '上限 Lv.8'] },
+  boost: { name: '攻击强化', icon: '攻击', color: '#26a69a', description: '每层直接 +1 伤害，持续 10 秒，最多 3 层。', features: ['每层 +1 伤害', '持续 10 秒', '最多 3 层'] },
+  plane: { name: '战机强化', icon: '强化', color: '#26a69a', description: '同时强化多项核心武器等级。', features: ['子弹等级+1', '散弹等级+1', '破甲等级+1'] },
+  heal: { name: '回血', icon: '回血', color: '#26a69a', description: '恢复生命，优先补自己，溢出会分配给队友。', features: ['单次恢复 30 生命', '组队可溢出补给队友', '稳定保命'] },
+  shield: { name: '护盾', icon: '护盾', color: '#26a69a', description: '提供护盾层，先抵挡碰撞和弹幕伤害。', features: ['单次增加护盾层', '优先消耗护盾', '掉落概率已上调（与护罩一致）'] },
+  barrier: { name: '护罩墙', icon: '护罩', color: '#26a69a', description: '底部防线，敌机越线时先消耗护罩层。', features: ['拾取后补满护罩层', '越线优先扣护罩', '可减少漏怪惩罚'] },
+  gravity_well: { name: '重力井', icon: '重井', color: '#90a4ae', description: '短时间聚怪并减速，方便集中清理。', features: ['持续约 4 秒', '牵引敌机向场中央靠拢', '显著提升清杂效率'] },
+  emp: { name: '电磁干扰', icon: '电磁', color: '#90a4ae', description: '压制敌方火力，缓解弹幕压力。', features: ['持续约 3 秒', '敌机开火频率明显降低', 'Boss 攻击节奏显著放缓'] },
+  updraft: { name: '上升气流', icon: '气流', color: '#90a4ae', description: '抬升底线附近敌机并减缓下压速度。', features: ['持续约 3.5 秒', '全体敌机下落减慢', '底线附近敌机会被抬升（强度适中）'] },
+  shrapnel_storm: { name: '破片风暴', icon: '破片', color: '#90a4ae', description: '环境破片持续打击敌方，补足火力空档。', features: ['持续约 5 秒', '周期性小额伤害', '对杂兵和 Boss 都有效'] },
+  lightning: { name: '毁灭闪电', icon: '毁灭', color: '#90a4ae', description: '全屏清杂兵的高价值环境道具。', features: ['清理当前敌机', '直接结算击杀分数', '可快速转危为安'] }
 };
 
+const bulletCards = [
+  { key: 'laser', label: '激光束', icon: '⚡', color: '#7e57c2' },
+  { key: 'burst', label: '弹幕弹', icon: '🔥', color: '#7e57c2' },
+  { key: 'explosive', label: '爆炸弹', icon: '💣', color: '#7e57c2' },
+  { key: 'pulse', label: '脉冲弹', icon: '🟦', color: '#7e57c2' },
+  { key: 'needle', label: '针刺弹', icon: '🟩', color: '#7e57c2' },
+  { key: 'ion', label: '离子弹', icon: '🟣', color: '#7e57c2' }
+];
+
+const attrCards = [
+  { key: 'spread', label: '散弹', icon: '散弹', color: '#26a69a' },
+  { key: 'pierce', label: '破甲', icon: '破甲', color: '#26a69a' },
+  { key: 'rapid', label: '射速', icon: '射速', color: '#26a69a' },
+  { key: 'missile', label: '导弹舱', icon: '导弹', color: '#26a69a' },
+  { key: 'boost', label: '攻击强化', icon: '攻击', color: '#26a69a' },
+  { key: 'plane', label: '战机强化', icon: '强化', color: '#26a69a' }
+];
+
+const survivalCards = [
+  { key: 'heal', label: '回血', icon: '回血', color: '#26a69a' },
+  { key: 'shield', label: '护盾', icon: '护盾', color: '#26a69a' },
+  { key: 'barrier', label: '护罩墙', icon: '护罩', color: '#26a69a' }
+];
+
+const envCards = [
+  { key: 'gravity_well', label: '重力井', icon: '重井', color: '#90a4ae' },
+  { key: 'emp', label: '电磁干扰', icon: '电磁', color: '#90a4ae' },
+  { key: 'updraft', label: '上升气流', icon: '气流', color: '#90a4ae' },
+  { key: 'shrapnel_storm', label: '破片风暴', icon: '破片', color: '#90a4ae' },
+  { key: 'lightning', label: '毁灭闪电', icon: '毁灭', color: '#90a4ae' }
+];
+
+const coreRules = [
+  '手指拖动战机，自动开火；先活下来再追分。',
+  '弹道武器是单选切换，但切换不降级；同类型拾取会继续升级。',
+  '攻击强化每层 +1 伤害，持续 10 秒，最多 3 层。',
+  '单人/组队：散弹/破甲上限 Lv.6。'
+];
+
+const quickPlay = [
+  '前期先补射速+散弹，尽快稳定清怪节奏。',
+  '遇到高防怪补破甲，避免伤害被吃掉。',
+  '环境道具保命优先：气流救底线，EMP 抢喘息，重井聚怪。'
+];
+
+const activeDetail = computed(() => detailMap[detailKey.value] || null);
+
 function handleStart() {
-  // 直接使用props中的playerName，不再需要手动输入
   emit('start', difficulty.value);
+}
+
+function selectDifficulty(value) {
+  difficulty.value = value;
 }
 
 function goBack() {
@@ -74,15 +108,16 @@ function goBack() {
 
 function toggleGuide() {
   showGuide.value = !showGuide.value;
-  weaponDetail.value = null; // 关闭武器详情
+  detailKey.value = '';
 }
 
-function showWeaponDetail(weaponType) {
-  weaponDetail.value = weaponType;
+function openDetail(key) {
+  if (!detailMap[key]) return;
+  detailKey.value = key;
 }
 
-function closeWeaponDetail() {
-  weaponDetail.value = null;
+function closeDetail() {
+  detailKey.value = '';
 }
 
 function viewLeaderboard() {
@@ -96,9 +131,9 @@ function viewLeaderboard() {
     <div class="content">
       <div class="header-actions">
         <button class="back-btn" @click="goBack">← 返回</button>
-        <button 
-          v-if="!isGuest"
-          class="leaderboard-btn" 
+        <button
+          v-if="!props.isGuest"
+          class="leaderboard-btn"
           @click="viewLeaderboard"
         >
           🏆 排行榜
@@ -106,148 +141,116 @@ function viewLeaderboard() {
       </div>
       <h1 class="title">✈️ 飞机大战</h1>
       <div class="player-info">
-        <span>飞行员: {{ playerName }}</span>
+        <span>飞行员: {{ props.playerName }}</span>
       </div>
       <div class="form">
         <div class="difficulty-group">
           <label>选择难度</label>
           <div class="difficulty-options">
-            <div 
-              v-for="diff in difficulties" 
+            <div
+              v-for="diff in difficulties"
               :key="diff.value"
               class="difficulty-option"
               :class="{ active: difficulty === diff.value }"
-              @click="difficulty = diff.value"
+              @click="selectDifficulty(diff.value)"
             >
               <div class="diff-label">{{ diff.label }}</div>
               <div class="diff-desc">{{ diff.desc }}</div>
             </div>
           </div>
         </div>
-        
+
         <button class="start-btn" @click="handleStart">
           开始游戏
         </button>
-        
+
         <button class="guide-btn" @click="toggleGuide">
-          📖 武器系统说明
+          📖 飞机大战说明
         </button>
       </div>
-      
+
       <div class="instructions">
-        <h3>游戏说明</h3>
-        <p>👆 触摸屏幕控制飞机移动</p>
-        <p>🎯 击毁障碍物获得分数</p>
-        <p>💥 避免碰撞障碍物</p>
+        <h3>3 秒速览</h3>
+        <p>👆 拖动战机躲弹幕，系统自动开火</p>
+        <p>🎯 先补射速/散弹，再补破甲打高防</p>
+        <p>🛡️ 保命优先：护盾、护罩墙、环境道具</p>
       </div>
     </div>
-    
-    <!-- 武器系统指南弹窗 -->
+
     <div v-if="showGuide" class="guide-overlay" @click="toggleGuide">
       <div class="guide-modal" @click.stop>
         <button class="close-btn" @click="toggleGuide">✕</button>
-        <h2>⚔️ 武器系统说明</h2>
-        
+        <h2>⚔️ 飞机大战玩法说明</h2>
+
         <div class="guide-section">
-          <h3>📝 简称说明</h3>
-          <div class="abbr-grid">
-            <div class="abbr-item"><span class="abbr">光</span> = 激光</div>
-            <div class="abbr-item"><span class="abbr">裂</span> = 爆裂</div>
-            <div class="abbr-item"><span class="abbr">爆</span> = 爆炸</div>
-            <div class="abbr-item"><span class="abbr">散</span> = 散弹</div>
-            <div class="abbr-item"><span class="abbr">穿</span> = 穿甲</div>
-            <div class="abbr-item"><span class="abbr">速</span> = 射速</div>
-            <div class="abbr-item"><span class="abbr">血</span> = 血包</div>
-            <div class="abbr-item"><span class="abbr">盾</span> = 护盾</div>
-            <div class="abbr-item"><span class="abbr">墙</span> = 防护罩</div>
-            <div class="abbr-item"><span class="abbr">缓</span> = 延缓</div>
-            <div class="abbr-item"><span class="abbr">毁</span> = 毁灭</div>
+          <h3>🧭 核心规则</h3>
+          <div class="rule-list">
+            <div v-for="(rule, idx) in coreRules" :key="idx" class="rule-item">{{ rule }}</div>
           </div>
         </div>
-        
+
         <div class="guide-section">
-          <h3>🔫 弹道类武器（互斥）</h3>
-          <p class="guide-note">只能拥有一种，切换会重置等级</p>
+          <h3>🚀 上手顺序</h3>
+          <div class="rule-list">
+            <div v-for="(tip, idx) in quickPlay" :key="idx" class="rule-item">{{ tip }}</div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <h3>🔫 弹道武器（点开看详情）</h3>
           <div class="weapon-grid">
-            <div class="weapon-item clickable" @click="showWeaponDetail('laser')">
-              <span class="weapon-icon" style="background: #00FFFF; color: #000;">⚡</span>
-              <span>激光束</span>
-            </div>
-            <div class="weapon-item clickable" @click="showWeaponDetail('burst')">
-              <span class="weapon-icon" style="background: #FF8000;">🔥</span>
-              <span>爆裂弹</span>
-            </div>
-            <div class="weapon-item clickable" @click="showWeaponDetail('explosive')">
-              <span class="weapon-icon" style="background: #333;">💣</span>
-              <span>爆炸弹</span>
+            <div v-for="card in bulletCards" :key="card.key" class="weapon-item clickable" @click="openDetail(card.key)">
+              <span class="weapon-icon" :style="{ background: card.color }">{{ card.icon }}</span>
+              <span>{{ card.label }}</span>
             </div>
           </div>
-          <p class="example">例：光3 → 吃到裂 → 裂1</p>
-          <p class="click-hint">💡 点击武器图标查看详情</p>
         </div>
-        
+
         <div class="guide-section">
-          <h3>✨ 属性类武器（可叠加）</h3>
-          <p class="guide-note">可以同时拥有多种</p>
+          <h3>✨ 属性道具（可叠加）</h3>
           <div class="weapon-grid">
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #2196f3;">散</span>
-              <span>散弹</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #ffeb3b;">穿</span>
-              <span>穿甲</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #f44336;">速</span>
-              <span>射速</span>
+            <div v-for="card in attrCards" :key="card.key" class="weapon-item clickable" @click="openDetail(card.key)">
+              <span class="weapon-icon" :style="{ background: card.color }">{{ card.icon }}</span>
+              <span>{{ card.label }}</span>
             </div>
           </div>
-          <p class="example">例：散2 穿1 速3 = 可叠加</p>
         </div>
-        
+
         <div class="guide-section">
-          <h3>🛡️ 其他道具</h3>
-          <div class="weapon-grid">
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #4caf50;">血</span>
-              <span>血包</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #607d8b;">盾</span>
-              <span>护盾</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #795548;">墙</span>
-              <span>防护罩</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #9e9e9e;">缓</span>
-              <span>延缓</span>
-            </div>
-            <div class="weapon-item">
-              <span class="weapon-icon" style="background: #ffeb3b;">毁</span>
-              <span>毁灭</span>
+          <h3>🛡️ 生存道具</h3>
+          <div class="weapon-grid three-cols">
+            <div v-for="card in survivalCards" :key="card.key" class="weapon-item clickable" @click="openDetail(card.key)">
+              <span class="weapon-icon" :style="{ background: card.color }">{{ card.icon }}</span>
+              <span>{{ card.label }}</span>
             </div>
           </div>
         </div>
-        
-        <button class="understand-btn" @click="toggleGuide">我明白了</button>
+
+        <div class="guide-section">
+          <h3>🌪️ 环境道具</h3>
+          <div class="weapon-grid five-cols">
+            <div v-for="card in envCards" :key="card.key" class="weapon-item clickable" @click="openDetail(card.key)">
+              <span class="weapon-icon" :style="{ background: card.color }">{{ card.icon }}</span>
+              <span>{{ card.label }}</span>
+            </div>
+          </div>
+        </div>
+
+        <button class="understand-btn" @click="toggleGuide">我明白了，开始战斗</button>
       </div>
     </div>
-    
-    <!-- 武器详情弹窗 -->
-    <div v-if="weaponDetail" class="weapon-detail-overlay" @click="closeWeaponDetail">
+
+    <div v-if="activeDetail" class="weapon-detail-overlay" @click="closeDetail">
       <div class="weapon-detail-modal" @click.stop>
-        <button class="close-btn" @click="closeWeaponDetail">✕</button>
-        <div class="weapon-detail-header" :style="{ background: weaponDetails[weaponDetail].color }">
-          <span class="weapon-detail-icon">{{ weaponDetails[weaponDetail].icon }}</span>
-          <h3>{{ weaponDetails[weaponDetail].name }}</h3>
+        <button class="close-btn" @click="closeDetail">✕</button>
+        <div class="weapon-detail-header" :style="{ background: activeDetail.color }">
+          <span class="weapon-detail-icon">{{ activeDetail.icon }}</span>
+          <h3>{{ activeDetail.name }}</h3>
         </div>
         <div class="weapon-detail-content">
-          <p class="weapon-desc">{{ weaponDetails[weaponDetail].description }}</p>
+          <p class="weapon-desc">{{ activeDetail.description }}</p>
           <div class="weapon-features">
-            <div v-for="(feature, index) in weaponDetails[weaponDetail].features" :key="index" class="feature-item">
+            <div v-for="(feature, index) in activeDetail.features" :key="index" class="feature-item">
               <span class="feature-dot">•</span>
               <span>{{ feature }}</span>
             </div>
@@ -274,7 +277,7 @@ function viewLeaderboard() {
   position: absolute;
   width: 100%;
   height: 100%;
-  background-image: 
+  background-image:
     radial-gradient(2px 2px at 20% 30%, white, transparent),
     radial-gradient(2px 2px at 60% 70%, white, transparent),
     radial-gradient(1px 1px at 50% 50%, white, transparent),
@@ -293,7 +296,7 @@ function viewLeaderboard() {
 .content {
   position: relative;
   z-index: 1;
-  max-width: 400px;
+  max-width: 420px;
   width: 90%;
   max-height: 90%;
   overflow-y: auto;
@@ -328,21 +331,8 @@ function viewLeaderboard() {
   transform: translateY(-2px);
 }
 
-.content::-webkit-scrollbar {
-  width: 4px;
-}
-
-.content::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 2px;
-}
-
 .title {
-  font-size: 2.5rem;
+  font-size: 2.4rem;
   color: #fff;
   text-align: center;
   margin-bottom: 1rem;
@@ -352,7 +342,7 @@ function viewLeaderboard() {
 .player-info {
   text-align: center;
   color: #4a9eff;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: bold;
   margin-bottom: 2rem;
   background: rgba(0, 0, 0, 0.2);
@@ -364,8 +354,8 @@ function viewLeaderboard() {
   margin-bottom: 2rem;
 }
 
-.input-group {
-  margin-bottom: 1.5rem;
+.difficulty-group {
+  margin-bottom: 1.25rem;
 }
 
 label {
@@ -373,31 +363,6 @@ label {
   color: #fff;
   margin-bottom: 0.5rem;
   font-size: 0.9rem;
-}
-
-input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  font-size: 1rem;
-  transition: all 0.3s;
-}
-
-input:focus {
-  outline: none;
-  border-color: #4a9eff;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.difficulty-group {
-  margin-bottom: 1.5rem;
 }
 
 .difficulty-options {
@@ -457,10 +422,6 @@ input::placeholder {
   box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
 }
 
-.start-btn:active {
-  transform: translateY(0);
-}
-
 .guide-btn {
   width: 100%;
   padding: 0.75rem;
@@ -479,314 +440,9 @@ input::placeholder {
   transform: translateY(-2px);
 }
 
-.guide-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  animation: fadeIn 0.3s ease-out;
-}
-
-.guide-modal {
-  background: linear-gradient(135deg, #1a1f3a 0%, #2a2f4a 100%);
-  border-radius: 20px;
-  padding: 2rem;
-  max-width: 500px;
-  width: 90%;
-  max-height: 85vh;
-  overflow-y: auto;
-  position: relative;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.3s ease-out;
-}
-
-.guide-modal::-webkit-scrollbar {
-  width: 6px;
-}
-
-.guide-modal::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-
-.guide-modal::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-}
-
-.close-btn {
-  position: absolute;
-  top: 1rem;
-  right: 1rem;
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  border-radius: 50%;
-  font-size: 1.2rem;
-  cursor: pointer;
-  transition: all 0.3s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.close-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: rotate(90deg);
-}
-
-.guide-modal h2 {
-  color: #fff;
-  margin-bottom: 1.5rem;
-  text-align: center;
-  font-size: 1.5rem;
-}
-
-.guide-section {
-  margin-bottom: 1.5rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.guide-section h3 {
-  color: #fff;
-  margin-bottom: 0.5rem;
-  font-size: 1.1rem;
-}
-
-.guide-note {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.85rem;
-  margin-bottom: 0.75rem;
-  font-style: italic;
-}
-
-.abbr-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-}
-
-.abbr-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 0.85rem;
-}
-
-.abbr {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 4px;
-  color: #fff;
-  font-weight: bold;
-  font-size: 0.9rem;
-}
-
-.weapon-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.weapon-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  color: #fff;
-  font-size: 0.85rem;
-  transition: all 0.3s ease;
-}
-
-.weapon-item.clickable {
-  cursor: pointer;
-}
-
-.weapon-item.clickable:hover {
-  background: rgba(255, 255, 255, 0.15);
-  transform: translateY(-2px);
-}
-
-.weapon-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: bold;
-  font-size: 1.1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
-.example {
-  color: #4a9eff;
-  font-size: 0.85rem;
-  text-align: center;
-  margin-top: 0.5rem;
-}
-
-.click-hint {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.75rem;
-  text-align: center;
-  margin-top: 0.5rem;
-  font-style: italic;
-}
-
-.understand-btn {
-  width: 100%;
-  padding: 1rem;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-  font-size: 1rem;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-top: 1rem;
-}
-
-.understand-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.6);
-}
-
-.weapon-detail-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1001;
-  animation: fadeIn 0.3s ease-out;
-}
-
-.weapon-detail-modal {
-  background: linear-gradient(135deg, #1a1f3a 0%, #2a2f4a 100%);
-  border-radius: 20px;
-  max-width: 400px;
-  width: 90%;
-  position: relative;
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.3s ease-out;
-  overflow: hidden;
-}
-
-.weapon-detail-header {
-  padding: 2rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  position: relative;
-}
-
-.weapon-detail-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-weight: bold;
-  font-size: 2rem;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-}
-
-.weapon-detail-header h3 {
-  color: #fff;
-  font-size: 1.5rem;
-  margin: 0;
-}
-
-.weapon-detail-content {
-  padding: 1.5rem;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-.weapon-desc {
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 1rem;
-  margin-bottom: 1.5rem;
-  text-align: center;
-  line-height: 1.6;
-}
-
-.weapon-features {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.feature-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.feature-dot {
-  color: #4a9eff;
-  font-size: 1.2rem;
-  line-height: 1.3;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .instructions {
   text-align: center;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .instructions h3 {
@@ -799,50 +455,229 @@ input::placeholder {
   font-size: 0.9rem;
 }
 
-@media (max-width: 480px) {
-  .content {
-    padding: 1.5rem 1rem;
-    width: 95%;
+.guide-overlay,
+.weapon-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.weapon-detail-overlay {
+  z-index: 1001;
+}
+
+.guide-modal {
+  background: linear-gradient(135deg, #1a1f3a 0%, #2a2f4a 100%);
+  border-radius: 18px;
+  padding: 1.5rem;
+  max-width: 760px;
+  width: min(94vw, 760px);
+  max-height: 86vh;
+  overflow-y: auto;
+  position: relative;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.close-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.guide-modal h2 {
+  color: #fff;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.guide-section {
+  margin-bottom: 1rem;
+  padding: 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.guide-section h3 {
+  color: #fff;
+  margin-bottom: 0.55rem;
+  font-size: 1.02rem;
+}
+
+.rule-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.rule-item {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.weapon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.weapon-grid.three-cols {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weapon-grid.five-cols {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.weapon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.weapon-item.clickable {
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.weapon-item.clickable:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.weapon-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: bold;
+  font-size: 0.95rem;
+}
+
+.understand-btn {
+  width: 100%;
+  padding: 0.95rem;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 0.6rem;
+}
+
+.weapon-detail-modal {
+  background: linear-gradient(135deg, #1a1f3a 0%, #2a2f4a 100%);
+  border-radius: 20px;
+  max-width: 430px;
+  width: 92%;
+  position: relative;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.weapon-detail-header {
+  padding: 1.8rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.weapon-detail-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: bold;
+  font-size: 1.6rem;
+}
+
+.weapon-detail-header h3 {
+  color: #fff;
+  margin: 0;
+}
+
+.weapon-detail-content {
+  padding: 1.25rem;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.weapon-desc {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  line-height: 1.55;
+}
+
+.weapon-features {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.feature-item {
+  display: flex;
+  gap: 0.45rem;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.feature-dot {
+  color: #4a9eff;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+@media (max-width: 820px) {
+  .weapon-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  
-  .title {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .difficulty-options {
-    flex-direction: column;
-  }
-  
-  .instructions {
-    font-size: 0.85rem;
-  }
-  
-  .instructions h3 {
-    font-size: 1rem;
+  .weapon-grid.five-cols {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (max-height: 700px) {
+@media (max-width: 480px) {
   .content {
-    padding: 1rem;
+    padding: 1.4rem 1rem;
+    width: 95%;
   }
-  
   .title {
-    font-size: 1.5rem;
-    margin-bottom: 1rem;
+    font-size: 1.85rem;
   }
-  
-  .form {
-    margin-bottom: 1rem;
-  }
-  
-  .input-group, .difficulty-group {
-    margin-bottom: 1rem;
-  }
-  
-  .instructions {
-    display: none;
+  .difficulty-options {
+    flex-direction: column;
   }
 }
 </style>

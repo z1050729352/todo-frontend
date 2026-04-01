@@ -38,10 +38,10 @@ const games = [
     id: 'snake',
     name: '贪吃蛇',
     icon: '🐍',
-    description: '经典休闲游戏，即将推出',
-    tip: '',
+    description: '全方向操控・单机挑战',
+    tip: '坚持 20 分钟获胜',
     color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-    available: false
+    available: true
   },
   {
     id: 'puzzle',

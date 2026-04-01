@@ -8,6 +8,12 @@ export function createPlayerHUDData() {
     bulletType: 'normal',
     bulletLevel: 0,
     attackPower: 0,
+    spreadLevel: 0,
+    pierceLevel: 0,
+    pierceReductionPct: 0,
+    fireRate: 1,
+    missilePodLevel: 0,
+    damageBoost: 0,
     health: 100,
     pauseButton: true
   };
@@ -24,4 +30,3 @@ export function updatePlayerHUD(playerIndex, patch) {
   if (!target) return;
   Object.assign(target, patch && typeof patch === 'object' ? patch : {});
 }
-
