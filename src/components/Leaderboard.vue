@@ -148,8 +148,9 @@ const highlights = computed(() => {
   }
 
   if (props.gameType === 'plane-war' && props.isMultiplayer) {
+    const myScore = normalizeScore(props.resultMeta?.myScore || 0);
     const teammateScore = normalizeScore(props.resultMeta?.teammateScore || 0);
-    list.push(`协作得分：你 ${normalizeScore(props.score)} / 队友 ${teammateScore}`);
+    list.push(`协作得分：你 ${myScore} / 队友 ${teammateScore}`);
   }
   if (props.gameType === 'tetris' && props.isMultiplayer) {
     const enemy = normalizeScore(props.resultMeta?.opponentScore || 0);
@@ -170,11 +171,13 @@ async function saveScore() {
     const game = props.gameType === 'tetris' ? 'tetris' : 'aircraft';
     const mode = props.isMultiplayer ? (game === 'tetris' ? 'pvp' : 'coop') : props.difficulty;
     const payload = {
-      score: props.score,
+      score: props.gameType === 'plane-war' && mode === 'coop' ? normalizeScore(props.resultMeta?.myScore || 0) : props.score,
       duration: 0,
       roomId: props.roomData?.roomId,
       partnerId: props.roomData?.opponentName
     };
+    if (mode === 'coop') payload.partnerScore = normalizeScore(props.resultMeta?.teammateScore || 0);
+    if (mode === 'pvp') payload.partnerScore = normalizeScore(props.resultMeta?.opponentScore || 0);
     const response = await api.post(`/rank/${game}/${mode}`, payload, {
       headers: { Authorization: `Bearer ${authData.token}` }
     });

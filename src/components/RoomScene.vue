@@ -154,9 +154,11 @@ function scheduleStart(payload) {
   const gameType = payload?.gameType || payload?.settings?.gameType || state.value?.gameType;
   const settings = payload?.settings || state.value?.settings || { gameType };
   const seed = payload?.seed;
+  const startAt = Number(payload?.startAt);
+  const delay = Number.isFinite(startAt) ? Math.max(0, Math.min(10000, startAt - Date.now())) : 3000;
   startTimer = setTimeout(() => {
     emit('startGame', { ...settings, gameType, seed });
-  }, 3000);
+  }, delay);
 }
 
 function onDisconnect() {

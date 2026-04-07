@@ -161,6 +161,7 @@ let gameRunning = false;
 const score = ref(0);
 const health = ref(100);
 const teammateHealth = ref(100);
+const teammateScore = ref(0);
 const wallCount = ref(0);
 const gameTime = ref(0);
 let startTime = 0;
@@ -515,6 +516,11 @@ let netBossBulletMap = new Map();
 let bossBulletIdSeq = 0;
 let netBossBulletSeqTick = -1;
 let netBossBulletSeq = 0;
+let lastScoreSyncAt = 0;
+let lastScoreSyncHostScore = -1;
+let lastScoreSyncGuestScore = -1;
+let lastSnapshotRequestAt = 0;
+let lastSnapshotRequestTick = -1;
 
 // 环境效果
 let environmentEffects = {
@@ -1237,7 +1243,7 @@ function syncHUDState() {
     updatePlayerHUD(2, {
       returnButton: false,
       gameTime: gameTime.value,
-      score: score.value,
+      score: teammateScore.value,
       bulletType: teammateWeapon.value.bulletType,
       bulletLevel: teammateWeapon.value.bulletLevel,
       attackPower: computeAttackPower(teammateWeapon.value),
@@ -2903,6 +2909,9 @@ function restartGame() {
     simNowMs = 0;
     lastTime = 0;
     startTime = 0;
+    if (props.isMultiplayer && isHost) {
+      hostSnapshotsByTick.set(0, buildNetStateSnapshot());
+    }
   } else {
     startTime = performance.now();
   }
@@ -2971,29 +2980,58 @@ function handlePauseTouch(e) {
   checkPauseButtonClick(p.x, p.y);
 }
 
-function checkPauseButtonClick(clickX, clickY) {
+function getPauseMenuLayout() {
+  if (!canvas.value) {
+    return {
+      titleY: 0,
+      dividerY: 0,
+      infoStartY: 0,
+      btnWidth: 180,
+      btnHeight: 50,
+      btnX: 0,
+      buttons: []
+    };
+  }
   const btnWidth = 180;
   const btnHeight = 50;
   const btnX = canvas.value.width / 2 - btnWidth / 2;
-  
-  const btn1Y = canvas.value.height / 2 - 20;
-  const btn2Y = canvas.value.height / 2 + 50;
-  const btn3Y = canvas.value.height / 2 + 120;
-  
-  // 检查继续游戏按钮点击
-  if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btn1Y && clickY <= btn1Y + btnHeight) {
+  const infoStartY = canvas.value.height / 2 - 25;
+  const lineHeight = 24;
+  const infoLineCount = 7;
+  const btnStartY = infoStartY + infoLineCount * lineHeight + 20;
+  return {
+    titleY: canvas.value.height / 2 - 120,
+    dividerY: canvas.value.height / 2 - 70,
+    infoStartY,
+    btnWidth,
+    btnHeight,
+    btnX,
+    buttons: [
+      { action: 'resume', text: '继续游戏', color: '#4caf50', y: btnStartY },
+      { action: 'restart', text: '重新开始', color: '#ff9800', y: btnStartY + 70 },
+      { action: 'back', text: '返回菜单', color: '#f44336', y: btnStartY + 140 }
+    ]
+  };
+}
+
+function checkPauseButtonClick(clickX, clickY) {
+  const layout = getPauseMenuLayout();
+  const hit = layout.buttons.find((btn) => (
+    clickX >= layout.btnX &&
+    clickX <= layout.btnX + layout.btnWidth &&
+    clickY >= btn.y &&
+    clickY <= btn.y + layout.btnHeight
+  ));
+  if (!hit) return;
+  if (hit.action === 'resume') {
     togglePause();
     return;
   }
-  
-  // 检查重新开始按钮点击
-  if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btn2Y && clickY <= btn2Y + btnHeight) {
+  if (hit.action === 'restart') {
     restartGame();
     return;
   }
-
-  // 检查返回菜单按钮点击
-  if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btn3Y && clickY <= btn3Y + btnHeight) {
+  if (hit.action === 'back') {
     goBackToHub();
   }
 }
@@ -3627,6 +3665,7 @@ function getPlaneLevel() {
 }
 
 function renderPauseScreen() {
+  const layout = getPauseMenuLayout();
   ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   ctx.fillRect(0, 0, canvas.value.width, canvas.value.height);
   
@@ -3634,18 +3673,14 @@ function renderPauseScreen() {
   ctx.font = 'bold 48px Arial';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('游戏暂停', canvas.value.width / 2, canvas.value.height / 2 - 120);
+  ctx.fillText('游戏暂停', canvas.value.width / 2, layout.titleY);
   
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(canvas.value.width / 2 - 100, canvas.value.height / 2 - 70);
-  ctx.lineTo(canvas.value.width / 2 + 100, canvas.value.height / 2 - 70);
+  ctx.moveTo(canvas.value.width / 2 - 100, layout.dividerY);
+  ctx.lineTo(canvas.value.width / 2 + 100, layout.dividerY);
   ctx.stroke();
-  
-  const btnWidth = 180;
-  const btnHeight = 50;
-  const btnX = canvas.value.width / 2 - btnWidth / 2;
   
   const w = playerWeapon.value || {};
   const pierceIgnore = computePierceDefenseIgnore(w.pierceLevel);
@@ -3661,25 +3696,16 @@ function renderPauseScreen() {
   
   ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
   ctx.font = '18px Arial';
-  const infoStartY = canvas.value.height / 2 - 25;
   for (let i = 0; i < infoLines.length; i++) {
-    ctx.fillText(infoLines[i], canvas.value.width / 2, infoStartY + i * 24);
+    ctx.fillText(infoLines[i], canvas.value.width / 2, layout.infoStartY + i * 24);
   }
-  
-  const btnStartY = infoStartY + infoLines.length * 24 + 20;
-  const buttons = [
-    { text: '继续游戏', color: '#4caf50', y: btnStartY },
-    { text: '重新开始', color: '#ff9800', y: btnStartY + 70 },
-    { text: '返回菜单', color: '#f44336', y: btnStartY + 140 }
-  ];
-
-  buttons.forEach(btn => {
+  layout.buttons.forEach(btn => {
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
     ctx.shadowBlur = 10;
     ctx.shadowOffsetY = 4;
     
     ctx.fillStyle = btn.color;
-    ctx.fillRect(btnX, btn.y, btnWidth, btnHeight);
+    ctx.fillRect(layout.btnX, btn.y, layout.btnWidth, layout.btnHeight);
     
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
@@ -3687,7 +3713,7 @@ function renderPauseScreen() {
     
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 22px Arial';
-    ctx.fillText(btn.text, canvas.value.width / 2, btn.y + btnHeight / 2);
+    ctx.fillText(btn.text, canvas.value.width / 2, btn.y + layout.btnHeight / 2);
   });
 }
 
@@ -4132,7 +4158,7 @@ function gameLoop(currentTime) {
 
         if (currentBoss && currentBoss.health <= 0) {
           const bossScore = Math.floor((100 + currentBoss.level * 50) * getScoreMultiplier());
-          score.value += bossScore;
+          teammateScore.value += bossScore;
           healPlayer(config.bossHealPercent);
           if (currentBoss.attackType === 'buff') {
             config.enemySpawnRate /= 1.5;
@@ -4326,7 +4352,7 @@ function gameLoop(currentTime) {
 
         if (enemy.health <= 0) {
           const enemyScore = Math.floor((10 + enemy.level * 10) * getScoreMultiplier());
-          score.value += enemyScore;
+          teammateScore.value += enemyScore;
           createExplosion(enemy.x, enemy.y, enemy.color);
           if (sounds.explosion) sounds.explosion();
           if (!props.isMultiplayer) {
@@ -4428,11 +4454,25 @@ function gameLoop(currentTime) {
       } else {
         createExplosion(bullet.x, bullet.y, '#ff0066');
         if (takeDamage(bullet.damage)) {
-          if (props.isMultiplayer && useDeterministicNet && bulletId) netBossBulletMap.delete(bulletId);
+          if (props.isMultiplayer && useDeterministicNet && bulletId) {
+            netBossBulletMap.delete(bulletId);
+            if (isHost) {
+              netQueueEvent({ type: 'remove_boss_bullet', tick: simTick, bulletId });
+            } else if (socket && props.roomData?.roomId) {
+              socket.emit('game_action', { roomId: props.roomData.roomId, action: { type: 'remove_boss_bullet', bulletId } });
+            }
+          }
           return false;
         }
       }
-      if (props.isMultiplayer && useDeterministicNet && bulletId) netBossBulletMap.delete(bulletId);
+      if (props.isMultiplayer && useDeterministicNet && bulletId) {
+        netBossBulletMap.delete(bulletId);
+        if (isHost) {
+          netQueueEvent({ type: 'remove_boss_bullet', tick: simTick, bulletId });
+        } else if (socket && props.roomData?.roomId) {
+          socket.emit('game_action', { roomId: props.roomData.roomId, action: { type: 'remove_boss_bullet', bulletId } });
+        }
+      }
       return false;
     }
 
@@ -4457,6 +4497,16 @@ function gameLoop(currentTime) {
   }
 
   if (socket && props.isMultiplayer && isHost) {
+    const nowMs = Number(currentTime) || 0;
+    if (nowMs - lastScoreSyncAt >= 260 || lastScoreSyncHostScore !== score.value || lastScoreSyncGuestScore !== teammateScore.value) {
+      lastScoreSyncAt = nowMs;
+      lastScoreSyncHostScore = score.value;
+      lastScoreSyncGuestScore = teammateScore.value;
+      socket.emit('game_action', {
+        roomId: props.roomData.roomId,
+        action: { type: 'score_sync', hostScore: score.value, guestScore: teammateScore.value }
+      });
+    }
     netFlushHost(socket);
   }
 
@@ -4495,11 +4545,17 @@ function endGame(victory = false) {
       cancelAnimationFrame(animationId);
       animationId = null;
     }
-    const finalScoreValue = Math.floor(score.value * (1 + gameTime.value * 0.01));
-    emit('gameOver', finalScoreValue, victory, {
+    const m = 1 + gameTime.value * 0.01;
+    const myBase = Math.floor(score.value);
+    const partnerBase = props.isMultiplayer ? Math.floor(teammateScore.value) : 0;
+    const myScore = Math.floor(myBase * m);
+    const partnerScore = Math.floor(partnerBase * m);
+    const totalScore = myScore + partnerScore;
+    emit('gameOver', totalScore, victory, {
       gameType: 'plane-war',
       mode: props.isMultiplayer ? 'coop' : 'solo',
-      teammateScore: props.isMultiplayer ? Number(GameState.player2.score || 0) : 0
+      myScore,
+      teammateScore: partnerScore
     });
   } else {
     // 通关时继续运行以显示特效，5 秒后再结束
@@ -4508,11 +4564,17 @@ function endGame(victory = false) {
         cancelAnimationFrame(animationId);
         animationId = null;
       }
-      const finalScoreValue = Math.floor(score.value * (1 + gameTime.value * 0.01));
-      emit('gameOver', finalScoreValue, victory, {
+      const m = 1 + gameTime.value * 0.01;
+      const myBase = Math.floor(score.value);
+      const partnerBase = props.isMultiplayer ? Math.floor(teammateScore.value) : 0;
+      const myScore = Math.floor(myBase * m);
+      const partnerScore = Math.floor(partnerBase * m);
+      const totalScore = myScore + partnerScore;
+      emit('gameOver', totalScore, victory, {
         gameType: 'plane-war',
         mode: props.isMultiplayer ? 'coop' : 'solo',
-        teammateScore: props.isMultiplayer ? Number(GameState.player2.score || 0) : 0
+        myScore,
+        teammateScore: partnerScore
       });
     }, 5000);
   }
@@ -4559,6 +4621,14 @@ onMounted(() => {
     if (socket) {
       if (props.roomData?.roomId) {
         socket.emit('rejoin_room', { roomId: props.roomData.roomId });
+      }
+      if (!isHost && useDeterministicNet && props.roomData?.roomId) {
+        const now = Date.now();
+        if (now - lastSnapshotRequestAt >= 300) {
+          lastSnapshotRequestAt = now;
+          lastSnapshotRequestTick = 0;
+          socket.emit('plane_state_mismatch', { roomId: props.roomData.roomId, payload: { tick: 0, localHash: -1, remoteHash: -1 } });
+        }
       }
 
       socket.on('game_action', (data) => {
@@ -4641,6 +4711,15 @@ onMounted(() => {
           if (health.value <= 0 && teammateHealth.value <= 0) {
             endGame();
           }
+        } else if (action.type === 'score_sync') {
+          const hostScore = Number(action.hostScore) || 0;
+          const guestScore = Number(action.guestScore) || 0;
+          if (isHost) {
+            teammateScore.value = guestScore;
+          } else {
+            score.value = guestScore;
+            teammateScore.value = hostScore;
+          }
         } else if (action.type === 'env_powerup') {
           if (!isHost) return;
           const t = String(action.powerUp || '');
@@ -4649,6 +4728,13 @@ onMounted(() => {
           } else {
             activateEnvironmentEffect(t);
           }
+        } else if (action.type === 'remove_boss_bullet') {
+          if (!isHost || !useDeterministicNet) return;
+          const id = String(action.bulletId || '');
+          if (!id) return;
+          netBossBulletMap.delete(id);
+          bossBullets = bossBullets.filter((b) => String(b?.id || '') !== id);
+          netQueueEvent({ type: 'remove_boss_bullet', tick: simTick, bulletId: id });
         }
       });
 
@@ -4665,6 +4751,15 @@ onMounted(() => {
         lastHostTickSeen = Math.max(lastHostTickSeen, hostTick);
         if (!isHost) {
           followerTargetTick = Math.max(0, hostTick - 1);
+          const now = Date.now();
+          const bucket = Math.max(0, Math.floor(hostTick / 60) * 60);
+          if ((enemies.length === 0 && !currentBoss) || hostTick - simTick > 30) {
+            if (now - lastSnapshotRequestAt >= 800 && bucket !== lastSnapshotRequestTick) {
+              lastSnapshotRequestAt = now;
+              lastSnapshotRequestTick = bucket;
+              socket.emit('plane_state_mismatch', { roomId: props.roomData.roomId, payload: { tick: bucket, localHash: -1, remoteHash: -1 } });
+            }
+          }
         }
       });
 
@@ -4674,7 +4769,16 @@ onMounted(() => {
         if (!Number.isFinite(payload.tick) || !Number.isFinite(payload.hash)) return;
         if (isHost) return;
         const localHash = followerHashesByTick.get(payload.tick);
-        if (!Number.isFinite(localHash)) return;
+        if (!Number.isFinite(localHash)) {
+          const now = Date.now();
+          const bucket = Math.max(0, Math.floor(payload.tick / 60) * 60);
+          if (now - lastSnapshotRequestAt >= 800 && bucket !== lastSnapshotRequestTick) {
+            lastSnapshotRequestAt = now;
+            lastSnapshotRequestTick = bucket;
+            socket.emit('plane_state_mismatch', { roomId: props.roomData.roomId, payload: { tick: bucket, localHash: -1, remoteHash: payload.hash } });
+          }
+          return;
+        }
         if (localHash !== payload.hash) {
           socket.emit('plane_state_mismatch', { roomId: props.roomData.roomId, payload: { tick: payload.tick, localHash, remoteHash: payload.hash } });
         }
@@ -4686,6 +4790,17 @@ onMounted(() => {
         const snapshot = payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : null;
         if (!snapshot) return;
         applyNetStateSnapshot(snapshot);
+        if (!isHost && useDeterministicNet && Number.isFinite(payload.tick)) {
+          const nextTick = Math.max(0, Math.floor(payload.tick));
+          if (nextTick > simTick) {
+            simTick = nextTick;
+            simNowMs = simTick * SIM_TICK_MS;
+            lastTime = simNowMs;
+            for (const k of Array.from(netPendingEventsByTick.keys())) {
+              if (Number(k) <= simTick) netPendingEventsByTick.delete(k);
+            }
+          }
+        }
       });
 
       socket.on('plane_state_mismatch', (data) => {
