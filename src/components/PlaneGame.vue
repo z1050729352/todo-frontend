@@ -176,56 +176,55 @@ function seededRandom() {
   return rngSeed / 233280;
 }
 
-// ── 双随机数生成器设计 ────────────────────────────────────────────────────────
-// 联机模式下存在两类随机数需求：
-//
-// 1. 「世界随机数」(getSeededRandom)：决定敌机生成、boss 行为等世界状态
-//    → 只有 host 调用，guest 端绝对不能消耗，否则序列错位
-//
-// 2. 「视觉随机数」(getVisualRandom)：决定粒子、特效、背景星星等纯视觉效果
-//    → 两端各自独立，不影响世界同步
-//
-// 单人模式下两者合并为同一个生成器（行为与原来完全一致）
-// ─────────────────────────────────────────────────────────────────────────────
 let visualSeed = Date.now() % 233280 || 1;
 function visualRandom() {
   visualSeed = (visualSeed * 9301 + 49297) % 233280;
   return visualSeed / 233280;
 }
 
-// 世界随机数：联机时只有 host 调用；单人时等同于 seededRandom
+// 单人：seededRandom；联机 host：seededRandom；联机 guest：visualRandom（不消耗世界序列）
 function getSeededRandom() {
-  if (props.isMultiplayer && !isHost) {
-    // guest 端：用视觉随机数代替，不消耗世界随机数序列
-    return visualRandom();
-  }
+  if (props.isMultiplayer && !isHost) return visualRandom();
   return seededRandom();
 }
-
-// 视觉随机数：两端各自独立，不影响同步
 function getVisualRandom() {
   return props.isMultiplayer ? visualRandom() : seededRandom();
 }
 
-const SIM_TICK_HZ = 60;
-const SIM_TICK_MS = 1000 / SIM_TICK_HZ;
-const useDeterministicNet = props.isMultiplayer;
+// ── 联机架构：服务端权威 + 状态广播 ─────────────────────────────────────────
+// 放弃确定性同步（Lockstep），改用更简单可靠的方案：
+//
+// host 端：完整运行游戏逻辑，每 NET_BROADCAST_MS 把世界状态广播给 guest
+// guest 端：只渲染，世界状态（敌机/boss/血量）完全来自 host 广播，用插值平滑
+//
+// 优点：两端看到的内容完全一致，不受帧率影响，不需要 tick 同步
+// ─────────────────────────────────────────────────────────────────────────────
+const NET_BROADCAST_MS = 50; // host 每 50ms 广播一次世界状态
+let lastBroadcastAt = 0;
+let lastScoreSyncAt = 0;
+let lastScoreSyncHostScore = -1;
+let lastScoreSyncGuestScore = -1;
+
+// guest 端：从 host 收到的世界状态（用于插值渲染）
+let netState = null;        // 最新收到的状态
+let netStatePrev = null;    // 上一帧收到的状态（用于插值）
+let netStateRecvAt = 0;     // 收到时间
+let netStatePrevAt = 0;
+
+// 兼容旧代码的空实现（不再使用确定性同步）
+const useDeterministicNet = false;
 let simTick = 0;
 let simNowMs = 0;
-let hostTick = 0;
-let followerTargetTick = 0;
-let lastTickSyncSentAtTick = -1;
-let lastHashSentAtTick = -1;
-let lastHostTickSeen = 0;
-let lastAppliedEvtTick = 0;
-let netPendingEventsByTick = new Map();
-let hostEvtBuffer = [];
-let hostSnapshotsByTick = new Map();
-let followerHashesByTick = new Map();
+const hostEvtBuffer = [];
+const netPendingEventsByTick = new Map();
+const hostSnapshotsByTick = new Map();
+const followerHashesByTick = new Map();
+let lastSnapshotRequestAt = 0;
+let lastSnapshotRequestTick = -1;
+let netEnemyMap = new Map();
+let netBossBulletMap = new Map();
 
-function getGameNowMs() {
-  return useDeterministicNet ? simNowMs : performance.now();
-}
+function getGameNowMs() { return performance.now(); }
 
 const difficultyConfig = {
   easy: { 
@@ -542,16 +541,9 @@ let netEnemySpawnSeq = 0;
 let lastPlanePatchAt = 0;
 let pendingRemovedEnemyIds = [];
 let lastPlaneSnapshotTick = 0;
-let netEnemyMap = new Map();
-let netBossBulletMap = new Map();
 let bossBulletIdSeq = 0;
 let netBossBulletSeqTick = -1;
 let netBossBulletSeq = 0;
-let lastScoreSyncAt = 0;
-let lastScoreSyncHostScore = -1;
-let lastScoreSyncGuestScore = -1;
-let lastSnapshotRequestAt = 0;
-let lastSnapshotRequestTick = -1;
 
 // 环境效果
 let environmentEffects = {
@@ -3788,33 +3780,16 @@ function gameLoop(currentTime) {
   }
 
   const frameTime = currentTime;
-  if (useDeterministicNet) {
-    // 用真实帧间隔累积，每帧最多推进 1 个 tick
-    // 避免高帧率设备（120fps）时间流速翻倍
-    const realDelta = lastTime > 0 ? Math.min(currentTime - lastTime, 50) : SIM_TICK_MS;
-    simAccumMs += realDelta;
+  // 联机模式：不再使用 simTick，直接用真实时间
+  // host 端：正常运行游戏逻辑，定期广播世界状态
+  // guest 端：从 netState 渲染，不自己模拟世界
 
-    if (simAccumMs >= SIM_TICK_MS) {
-      simAccumMs -= SIM_TICK_MS;
-      simTick += 1;
-      simNowMs = simTick * SIM_TICK_MS;
-      drainPlaneEventsForTick(simTick);
-      if (props.isMultiplayer && !isHost && simTick % 60 === 0) {
-        followerHashesByTick.set(simTick, buildNetStateHash());
-        if (followerHashesByTick.size > 12) {
-          const keys = Array.from(followerHashesByTick.keys()).sort((a, b) => a - b);
-          for (let i = 0; i < keys.length - 12; i++) followerHashesByTick.delete(keys[i]);
-        }
-      }
-    }
-    currentTime = simNowMs;
-  }
-
-  const delta = useDeterministicNet ? SIM_TICK_MS : (currentTime - lastTime);
+  const delta = currentTime - lastTime;
   lastTime = currentTime;
   gameTime.value = Math.floor((currentTime - startTime) / 1000);
+  // host 或单人：完整模拟世界；guest：只渲染，世界状态来自广播
   const simulateWorld = !props.isMultiplayer || isHost;
-  const netFollowerSim = props.isMultiplayer && !isHost && useDeterministicNet;
+  const netFollowerSim = false; // 新架构不再需要 guest 端本地模拟
   const socket = props.isMultiplayer ? getSocket() : null;
   if (!perfLastTs) perfLastTs = frameTime;
   perfFrames += 1;
@@ -4300,10 +4275,9 @@ function gameLoop(currentTime) {
   enemies = enemies.filter(enemy => {
     if (simulateWorld) {
       enemy.update(currentTime);
-    } else if (netFollowerSim) {
-      enemy.update(currentTime, { shoot: false });
     } else {
-      updateNetEntity(enemy, delta);
+      // guest 端：敌机位置已由 world_state 更新，只做渲染
+      // 不做本地模拟，避免速度不一致
     }
     enemy.draw();
 
@@ -4542,6 +4516,42 @@ function gameLoop(currentTime) {
 
   if (socket && props.isMultiplayer && isHost) {
     const nowMs = Number(currentTime) || 0;
+    // ── 新架构：host 每 NET_BROADCAST_MS 广播完整世界状态 ──────────────────
+    if (nowMs - lastBroadcastAt >= NET_BROADCAST_MS) {
+      lastBroadcastAt = nowMs;
+      // 构建世界状态快照
+      const worldState = {
+        t: nowMs,
+        enemies: enemies.map(e => ({
+          id: e.id, x: Math.round(e.x), y: Math.round(e.y),
+          health: Math.round(e.health), maxHealth: e.maxHealth,
+          level: e.level, type: e.type, color: e.color,
+          speed: e.speed, horizontalSpeed: e.horizontalSpeed,
+          pattern: e.pattern, canShoot: e.canShoot, shootPattern: e.shootPattern
+        })),
+        boss: currentBoss ? {
+          x: Math.round(currentBoss.x), y: Math.round(currentBoss.y),
+          health: Math.round(currentBoss.health), maxHealth: currentBoss.maxHealth,
+          level: currentBoss.level, attackType: currentBoss.attackType,
+          color: currentBoss.color, width: currentBoss.width, height: currentBoss.height,
+          defense: currentBoss.defense, bossShield: currentBoss.bossShield,
+          healthBars: currentBoss.healthBars, moveDirection: currentBoss.moveDirection
+        } : null,
+        bossBullets: bossBullets.map(bb => ({
+          id: bb.id, x: Math.round(bb.x), y: Math.round(bb.y),
+          angle: bb.angle, speed: bb.speed, damage: bb.damage, isLaser: bb.isLaser
+        })),
+        hostScore: score.value,
+        hostHealth: health.value,
+        gameTime: gameTime.value,
+        bossLevel
+      };
+      socket.emit('game_action', {
+        roomId: props.roomData.roomId,
+        action: { type: 'world_state', state: worldState }
+      });
+    }
+    // 分数同步
     if (nowMs - lastScoreSyncAt >= 260 || lastScoreSyncHostScore !== score.value || lastScoreSyncGuestScore !== teammateScore.value) {
       lastScoreSyncAt = nowMs;
       lastScoreSyncHostScore = score.value;
@@ -4551,10 +4561,9 @@ function gameLoop(currentTime) {
         action: { type: 'score_sync', hostScore: score.value, guestScore: teammateScore.value }
       });
     }
-    netFlushHost(socket);
   }
 
-  // guest 端也定期把自己的分数上报给 host，让 host 能正确显示队友分数
+  // guest 端定期上报自己的分数
   if (socket && props.isMultiplayer && !isHost) {
     const nowMs = Number(currentTime) || 0;
     if (nowMs - lastScoreSyncAt >= 500 || lastScoreSyncHostScore !== score.value) {
@@ -4784,6 +4793,65 @@ onMounted(() => {
           if (isHost) {
             const guestScore = Number(action.guestScore) || 0;
             teammateScore.value = guestScore;
+          }
+        } else if (action.type === 'world_state') {
+          // ── 新架构：guest 端接收 host 广播的世界状态 ──────────────────────
+          if (!isHost && action.state) {
+            const s = action.state;
+            // 更新敌机
+            if (Array.isArray(s.enemies)) {
+              const nextMap = new Map();
+              for (const ed of s.enemies) {
+                if (!ed || !ed.id) continue;
+                let e = netEnemyMap.get(ed.id);
+                if (!e) {
+                  e = new Enemy(ed.level || 1, true);
+                  e.id = ed.id;
+                }
+                e.x = ed.x; e.y = ed.y;
+                e.health = ed.health; e.maxHealth = ed.maxHealth;
+                e.level = ed.level; e.type = ed.type; e.color = ed.color;
+                e.speed = ed.speed; e.horizontalSpeed = ed.horizontalSpeed;
+                e.pattern = ed.pattern; e.canShoot = ed.canShoot;
+                e.shootPattern = ed.shootPattern;
+                nextMap.set(ed.id, e);
+              }
+              netEnemyMap = nextMap;
+              enemies = Array.from(netEnemyMap.values());
+            }
+            // 更新 boss
+            if (s.boss) {
+              if (!currentBoss) currentBoss = new Boss(s.boss.level || 1, s.boss.attackType || 'rain');
+              currentBoss.x = s.boss.x; currentBoss.y = s.boss.y;
+              currentBoss.health = s.boss.health; currentBoss.maxHealth = s.boss.maxHealth;
+              currentBoss.level = s.boss.level; currentBoss.attackType = s.boss.attackType;
+              currentBoss.color = s.boss.color; currentBoss.width = s.boss.width;
+              currentBoss.height = s.boss.height; currentBoss.defense = s.boss.defense;
+              currentBoss.bossShield = s.boss.bossShield || 0;
+              if (Array.isArray(s.boss.healthBars)) currentBoss.healthBars = s.boss.healthBars;
+              currentBoss.moveDirection = s.boss.moveDirection || 1;
+            } else {
+              currentBoss = null;
+            }
+            // 更新 boss 子弹
+            if (Array.isArray(s.bossBullets)) {
+              const nextBBMap = new Map();
+              for (const bd of s.bossBullets) {
+                if (!bd || !bd.id) continue;
+                let bb = netBossBulletMap.get(bd.id);
+                if (!bb) bb = createBossBullet(bd.x, bd.y, bd.angle, bd.damage, bd.speed, bd.isLaser, bd.id);
+                bb.x = bd.x; bb.y = bd.y; bb.angle = bd.angle;
+                bb.speed = bd.speed; bb.damage = bd.damage; bb.isLaser = bd.isLaser;
+                nextBBMap.set(bd.id, bb);
+              }
+              netBossBulletMap = nextBBMap;
+              bossBullets = Array.from(netBossBulletMap.values());
+            }
+            // 更新 host 血量和分数
+            if (typeof s.hostHealth === 'number') teammateHealth.value = s.hostHealth;
+            if (typeof s.hostScore === 'number') teammateScore.value = s.hostScore;
+            if (typeof s.gameTime === 'number') gameTime.value = s.gameTime;
+            if (typeof s.bossLevel === 'number') bossLevel = s.bossLevel;
           }
         } else if (action.type === 'env_powerup') {
           if (!isHost) return;
