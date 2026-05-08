@@ -1,6 +1,19 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import FriendSystem from './FriendSystem.vue';
+import { apiFetchJson } from '../utils/api';
+
+const FRONTEND_VER = 2;
+const backendVer = ref('?');
+
+onMounted(async () => {
+  try {
+    const data = await apiFetchJson('/health');
+    backendVer.value = data?.ver ?? '?';
+  } catch {
+    backendVer.value = '?';
+  }
+});
 
 const props = defineProps({
   playerName: {
@@ -126,6 +139,7 @@ function handleLogout() {
     <div class="hub-footer">
       <p>更多游戏持续更新中...</p>
     </div>
+    <div class="version-badge">v{{ FRONTEND_VER }}.{{ backendVer }}</div>
   </div>
 </template>
 
@@ -380,9 +394,21 @@ function handleLogout() {
   color: rgba(255, 255, 255, 0.8);
   font-size: 0.9rem;
   margin-top: 20px;
-  margin-bottom: 20px; /* 确保底部有空间 */
+  margin-bottom: 20px;
   padding-bottom: 20px;
   animation: fadeIn 0.6s ease-out 0.4s backwards;
+}
+
+.version-badge {
+  position: fixed;
+  bottom: calc(8px + var(--safe-area-bottom, 0px));
+  left: 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: 'Monaco', monospace;
+  pointer-events: none;
+  letter-spacing: 0.5px;
+  z-index: 50;
 }
 
 @keyframes fadeInDown {
