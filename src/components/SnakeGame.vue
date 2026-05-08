@@ -2,37 +2,49 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { loadSnakeLeaderboard, saveSnakeRecord, formatDuration } from '../utils/snakeLeaderboard';
 
+// ─────────────────────────────────────────────
+// 核心设计（slither.io 风格）
+//
+// 1. 蛇用「角度」驱动，每帧最多转 MAX_TURN_RATE rad/s
+//    → 彻底消除反向绕圈撞自己的问题
+//
+// 2. 触摸控制：用触摸点相对蛇头的方向角来决定目标角
+//    → 跟手，不追世界坐标点
+//
+// 3. 反向保护：目标角与当前角差值 > π 时自动取最短路径
+//    → 不会因为手指在蛇头后方而强行 U 形转弯
+//
+// 4. 身体用「链式跟随」：每个节点跟随前一个节点，
+//    间距固定，不会因速度变化而拉伸
+// ─────────────────────────────────────────────
+
 const props = defineProps({
-  playerName: {
-    type: String,
-    default: ''
-  },
-  isGuest: {
-    type: Boolean,
-    default: false
-  },
-  difficulty: {
-    type: String,
-    default: 'medium'
-  }
+  playerName: { type: String, default: '' },
+  isGuest:    { type: Boolean, default: false },
+  difficulty: { type: String, default: 'medium' }
 });
 
 const emit = defineEmits(['backToHub']);
 
 const canvasRef = ref(null);
-const paused = ref(false);
+const paused    = ref(false);
 const gameEnded = ref(false);
-const victory = ref(false);
-const score = ref(0);
+const victory   = ref(false);
+const score     = ref(0);
 const elapsedMs = ref(0);
 const leaderboard = ref([]);
-const boostOn = ref(false);
+const boostOn   = ref(false);
 
-const baseSpeed = computed(() => {
-  if (props.difficulty === 'easy') return 160;
-  if (props.difficulty === 'hard') return 300;
-  return 220;
-});
+// ── 难度参数 ──────────────────────────────────
+// baseSpeed: 像素/秒
+// maxTurnRate: 弧度/秒（越大转弯越灵活）
+const DIFF = {
+  easy:   { baseSpeed: 140, maxTurnRate: 3.2 },
+  medium: { baseSpeed: 190, maxTurnRate: 3.8 },
+  hard:   { baseSpeed: 260, maxTurnRate: 4.4 },
+};
+
+const diffCfg = computed(() => DIFF[props.difficulty] || DIFF.medium);
 
 const difficultyLabel = computed(() => {
   if (props.difficulty === 'easy') return '休闲';
@@ -40,84 +52,83 @@ const difficultyLabel = computed(() => {
   return '标准';
 });
 
-const playerLabel = computed(() => String(props.playerName || (props.isGuest ? '游客' : '玩家')));
+const playerLabel = computed(() =>
+  String(props.playerName || (props.isGuest ? '游客' : '玩家'))
+);
 const displayTime = computed(() => formatDuration(elapsedMs.value));
 
-let ctx = null;
+// ── Canvas / 世界 ─────────────────────────────
+let ctx   = null;
 let rafId = 0;
+let viewW = 0, viewH = 0;
+let worldW = 0, worldH = 0;
+let camX = 0, camY = 0;
 
-let viewW = 0;
-let viewH = 0;
-let worldW = 0;
-let worldH = 0;
-let camX = 0;
-let camY = 0;
+// ── 蛇的几何常量 ──────────────────────────────
+const HEAD_R   = 10;   // 头部半径（碰撞用）
+const BODY_R   = 8;    // 身体半径（渲染用）
+const SEG_DIST = 11;   // 节点间距（固定，不随速度变化）
 
-const headRadius = 9;
-const bodyRadius = 7.5;
-const segmentSpacing = 10;
+// 自碰检测跳过前 N 个节点（头部附近的身体不参与检测）
+const SELF_SKIP = 14;
 
-const winMs = 20 * 60 * 1000;
+const WIN_MS = 20 * 60 * 1000;
 
+// ── 蛇状态（角度驱动）────────────────────────
+// angle: 当前朝向角（弧度），0 = 向右，顺时针增大
+// targetAngle: 玩家期望的目标角
 const snake = {
-  points: [],
-  dir: { x: 1, y: 0 }
+  segs: [],      // [{ x, y }]，segs[0] 是头
+  angle: 0,
+  targetAngle: 0
 };
 
-const food = {
-  x: 0,
-  y: 0,
-  r: 9
-};
+// ── 食物 ──────────────────────────────────────
+const food = { x: 0, y: 0, r: 10 };
 
+// ── 道具 ──────────────────────────────────────
 const item = {
-  active: false,
-  type: '',
-  x: 0,
-  y: 0,
-  r: 12,
-  bornMs: 0,
-  expireMs: 0
+  active: false, type: '', x: 0, y: 0, r: 13,
+  bornMs: 0, expireMs: 0
 };
 
-let scoreMultiplier = 1;
+// ── 状态变量 ──────────────────────────────────
+let scoreMultiplier  = 1;
 let multiplierUntilMs = 0;
-let slowUntilMs = 0;
-let wrapEnabled = false;
-let wrapOffered = false;
-
-let nextItemSpawnMs = 0;
+let slowUntilMs      = 0;
+let wrapEnabled      = false;
+let wrapOffered      = false;
+let nextItemSpawnMs  = 0;
 
 let lastTs = 0;
-let nowMs = 0;
+let nowMs  = 0;
+
+// ── 输入状态 ──────────────────────────────────
+// 用「触摸点相对蛇头的屏幕方向」来设置 targetAngle
+// 而不是追世界坐标点，这样更跟手
 let isPointerDown = false;
-let targetWorld = null;
+let touchScreenX  = 0;   // 当前触摸点的屏幕坐标
+let touchScreenY  = 0;
+let hasTouchTarget = false;
 let lastTapMs = 0;
-let lastTapX = 0;
-let lastTapY = 0;
+let lastTapX  = 0;
+let lastTapY  = 0;
 
-function clamp(v, min, max) {
-  return Math.max(min, Math.min(max, v));
+// ── 工具函数 ──────────────────────────────────
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function rand(min, max)     { return min + Math.random() * (max - min); }
+function lerp(a, b, t)      { return a + (b - a) * t; }
+
+// 将角度归一化到 [-π, π]
+function normalizeAngle(a) {
+  while (a >  Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
 }
 
-function rand(min, max) {
-  return min + Math.random() * (max - min);
-}
-
-function dist(a, b) {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.hypot(dx, dy);
-}
-
-function normalize(v) {
-  const d = Math.hypot(v.x, v.y);
-  if (d <= 1e-6) return { x: 1, y: 0 };
-  return { x: v.x / d, y: v.y / d };
-}
-
-function lerp(a, b, t) {
-  return a + (b - a) * t;
+// 两角之间的最短差值（带符号，[-π, π]）
+function angleDiff(from, to) {
+  return normalizeAngle(to - from);
 }
 
 function setCanvasSize() {
@@ -127,28 +138,28 @@ function setCanvasSize() {
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   viewW = Math.max(1, Math.floor(rect.width));
   viewH = Math.max(1, Math.floor(rect.height));
-  canvas.width = Math.floor(viewW * dpr);
+  canvas.width  = Math.floor(viewW * dpr);
   canvas.height = Math.floor(viewH * dpr);
   ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  worldW = Math.max(viewW * 2, 600);
-  worldH = Math.max(viewH * 2, 900);
-  if (snake.points.length) {
-    const h = snake.points[0];
-    h.x = clamp(h.x, headRadius, worldW - headRadius);
-    h.y = clamp(h.y, headRadius, worldH - headRadius);
+  worldW = Math.max(viewW * 2.5, 800);
+  worldH = Math.max(viewH * 2.5, 1200);
+  if (snake.segs.length) {
+    const h = snake.segs[0];
+    h.x = clamp(h.x, HEAD_R, worldW - HEAD_R);
+    h.y = clamp(h.y, HEAD_R, worldH - HEAD_R);
   }
 }
 
 function randomFreePosition(radius) {
   for (let k = 0; k < 80; k++) {
     const p = {
-      x: rand(radius + 10, worldW - radius - 10),
-      y: rand(radius + 10, worldH - radius - 10)
+      x: rand(radius + 20, worldW - radius - 20),
+      y: rand(radius + 20, worldH - radius - 20)
     };
-    if (snake.points.length) {
-      const h = snake.points[0];
-      if (Math.hypot(p.x - h.x, p.y - h.y) < 120) continue;
+    if (snake.segs.length) {
+      const h = snake.segs[0];
+      if (Math.hypot(p.x - h.x, p.y - h.y) < 150) continue;
     }
     return p;
   }
@@ -162,47 +173,53 @@ function respawnFood() {
 }
 
 function resetGame() {
-  paused.value = false;
+  paused.value    = false;
   gameEnded.value = false;
-  victory.value = false;
-  score.value = 0;
+  victory.value   = false;
+  score.value     = 0;
   elapsedMs.value = 0;
-  boostOn.value = false;
-  scoreMultiplier = 1;
+  boostOn.value   = false;
+  scoreMultiplier  = 1;
   multiplierUntilMs = 0;
-  slowUntilMs = 0;
-  wrapEnabled = false;
-  wrapOffered = false;
-  item.active = false;
-  item.type = '';
-  nextItemSpawnMs = 15000;
-  snake.points = [];
-  const start = { x: worldW / 2, y: worldH / 2 };
-  snake.dir = { x: 1, y: 0 };
-  for (let i = 0; i < 18; i++) {
-    snake.points.push({ x: start.x - i * segmentSpacing, y: start.y });
+  slowUntilMs      = 0;
+  wrapEnabled      = false;
+  wrapOffered      = false;
+  item.active      = false;
+  item.type        = '';
+  nextItemSpawnMs  = 15000;
+  lastTs           = 0;
+  hasTouchTarget   = false;
+
+  snake.segs  = [];
+  snake.angle = 0;  // 初始朝右
+  snake.targetAngle = 0;
+
+  const sx = worldW / 2;
+  const sy = worldH / 2;
+  // 初始 20 节，向右排列
+  for (let i = 0; i < 20; i++) {
+    snake.segs.push({ x: sx - i * SEG_DIST, y: sy });
   }
-  targetWorld = { x: start.x + 200, y: start.y };
   respawnFood();
 }
 
 function speedNow() {
-  let mul = 1;
-  if (boostOn.value) mul *= 1.7;
-  if (nowMs < slowUntilMs) mul *= 0.5;
-  return baseSpeed.value * mul;
+  let spd = diffCfg.value.baseSpeed;
+  if (boostOn.value)      spd *= 1.7;
+  if (nowMs < slowUntilMs) spd *= 0.5;
+  return spd;
 }
 
 function updateCamera() {
-  const h = snake.points[0];
-  camX = clamp(h.x - viewW / 2, 0, worldW - viewW);
-  camY = clamp(h.y - viewH / 2, 0, worldH - viewH);
+  const h = snake.segs[0];
+  camX = clamp(h.x - viewW / 2, 0, Math.max(0, worldW - viewW));
+  camY = clamp(h.y - viewH / 2, 0, Math.max(0, worldH - viewH));
 }
 
-function growSnake(segments = 8) {
-  const tail = snake.points[snake.points.length - 1];
-  for (let i = 0; i < segments; i++) {
-    snake.points.push({ x: tail.x, y: tail.y });
+function growSnake(count = 8) {
+  const tail = snake.segs[snake.segs.length - 1];
+  for (let i = 0; i < count; i++) {
+    snake.segs.push({ x: tail.x, y: tail.y });
   }
 }
 
@@ -213,42 +230,34 @@ function spawnItem() {
   const type = pool[Math.floor(Math.random() * pool.length)];
   if (type === 'pierce') wrapOffered = true;
   const p = randomFreePosition(item.r);
-  item.active = true;
-  item.type = type;
-  item.x = p.x;
-  item.y = p.y;
-  item.bornMs = nowMs;
+  item.active   = true;
+  item.type     = type;
+  item.x        = p.x;
+  item.y        = p.y;
+  item.bornMs   = nowMs;
   item.expireMs = nowMs + 10000;
 }
 
 function applyItem(type) {
-  if (type === 'slow') {
-    slowUntilMs = nowMs + 5000;
-    return;
-  }
-  if (type === 'multi') {
-    scoreMultiplier = 2;
-    multiplierUntilMs = nowMs + 5000;
-    return;
-  }
-  if (type === 'pierce') {
-    wrapEnabled = true;
-  }
+  if (type === 'slow')   { slowUntilMs = nowMs + 5000; return; }
+  if (type === 'multi')  { scoreMultiplier = 2; multiplierUntilMs = nowMs + 5000; return; }
+  if (type === 'pierce') { wrapEnabled = true; }
 }
 
 function handleEatFood() {
-  const gain = Math.floor(10 * scoreMultiplier);
-  score.value += gain;
+  score.value += Math.floor(10 * scoreMultiplier);
   growSnake(10);
   respawnFood();
 }
 
+// ── 自碰检测 ──────────────────────────────────
+// 跳过前 SELF_SKIP 个节点（头部附近的身体弯曲时不触发）
+// 碰撞半径收紧到 0.55，减少误判
 function checkSelfCollision() {
-  const h = snake.points[0];
-  for (let i = 10; i < snake.points.length; i++) {
-    const p = snake.points[i];
-    const d = Math.hypot(h.x - p.x, h.y - p.y);
-    if (d < headRadius + bodyRadius * 0.6) return true;
+  const h = snake.segs[0];
+  for (let i = SELF_SKIP; i < snake.segs.length; i++) {
+    const p = snake.segs[i];
+    if (Math.hypot(h.x - p.x, h.y - p.y) < (HEAD_R + BODY_R) * 0.55) return true;
   }
   return false;
 }
@@ -256,105 +265,122 @@ function checkSelfCollision() {
 function endGame(v) {
   if (gameEnded.value) return;
   gameEnded.value = true;
-  victory.value = Boolean(v);
+  victory.value   = Boolean(v);
   leaderboard.value = saveSnakeRecord({
-    name: playerLabel.value,
-    score: score.value,
+    name:       playerLabel.value,
+    score:      score.value,
     durationMs: elapsedMs.value,
-    victory: victory.value,
+    victory:    victory.value,
     difficulty: props.difficulty
   });
 }
 
+// ── 核心 update ───────────────────────────────
 function update(dt) {
   nowMs = elapsedMs.value;
-  if (nowMs >= winMs) {
-    elapsedMs.value = winMs;
+
+  if (nowMs >= WIN_MS) {
+    elapsedMs.value = WIN_MS;
     endGame(true);
     return;
   }
 
+  // 道具/倍率过期
   if (nowMs >= multiplierUntilMs) scoreMultiplier = 1;
-  if (item.active && nowMs >= item.expireMs) {
-    item.active = false;
-    item.type = '';
-  }
+  if (item.active && nowMs >= item.expireMs) { item.active = false; item.type = ''; }
   if (!item.active && nowMs >= nextItemSpawnMs) {
     spawnItem();
     nextItemSpawnMs = nowMs + 15000;
   }
 
-  let desired = snake.dir;
-  if (targetWorld) {
-    const h = snake.points[0];
-    desired = normalize({ x: targetWorld.x - h.x, y: targetWorld.y - h.y });
+  // ── 转向：角度驱动，每帧最多转 maxTurnRate * dt 弧度 ──
+  // 用 angleDiff 取最短路径，彻底避免反向绕圈
+  if (hasTouchTarget) {
+    const h = snake.segs[0];
+    // 把触摸屏幕坐标转成相对蛇头的方向角
+    const hScreenX = h.x - camX;
+    const hScreenY = h.y - camY;
+    const dx = touchScreenX - hScreenX;
+    const dy = touchScreenY - hScreenY;
+    // 只有触摸点离蛇头足够远才更新目标角（避免手指压在头上时抖动）
+    if (Math.hypot(dx, dy) > 12) {
+      snake.targetAngle = Math.atan2(dy, dx);
+    }
   }
-  snake.dir.x = lerp(snake.dir.x, desired.x, 0.18);
-  snake.dir.y = lerp(snake.dir.y, desired.y, 0.18);
-  snake.dir = normalize(snake.dir);
 
-  const h = snake.points[0];
-  h.x += snake.dir.x * speedNow() * dt;
-  h.y += snake.dir.y * speedNow() * dt;
+  const maxTurn = diffCfg.value.maxTurnRate * dt;
+  const diff    = angleDiff(snake.angle, snake.targetAngle);
+  // 限制每帧转角
+  const turn    = clamp(diff, -maxTurn, maxTurn);
+  snake.angle   = normalizeAngle(snake.angle + turn);
 
+  const spd = speedNow();
+  const dx  = Math.cos(snake.angle) * spd * dt;
+  const dy  = Math.sin(snake.angle) * spd * dt;
+
+  const h = snake.segs[0];
+  h.x += dx;
+  h.y += dy;
+
+  // 边界处理
   if (wrapEnabled) {
-    let dx = 0;
-    let dy = 0;
-    if (h.x < 0) dx = worldW;
-    if (h.x > worldW) dx = -worldW;
-    if (h.y < 0) dy = worldH;
-    if (h.y > worldH) dy = -worldH;
-    if (dx || dy) {
-      for (const p of snake.points) {
-        p.x += dx;
-        p.y += dy;
-      }
+    let ox = 0, oy = 0;
+    if (h.x < 0)       ox =  worldW;
+    if (h.x > worldW)  ox = -worldW;
+    if (h.y < 0)       oy =  worldH;
+    if (h.y > worldH)  oy = -worldH;
+    if (ox || oy) {
+      for (const s of snake.segs) { s.x += ox; s.y += oy; }
     }
   } else {
-    if (h.x < headRadius || h.x > worldW - headRadius || h.y < headRadius || h.y > worldH - headRadius) {
+    if (h.x < HEAD_R || h.x > worldW - HEAD_R ||
+        h.y < HEAD_R || h.y > worldH - HEAD_R) {
       endGame(false);
       return;
     }
   }
 
-  for (let i = 1; i < snake.points.length; i++) {
-    const prev = snake.points[i - 1];
-    const cur = snake.points[i];
-    const dx = cur.x - prev.x;
-    const dy = cur.y - prev.y;
-    const d = Math.hypot(dx, dy);
-    if (d > segmentSpacing) {
-      cur.x = prev.x + (dx / d) * segmentSpacing;
-      cur.y = prev.y + (dy / d) * segmentSpacing;
+  // ── 身体链式跟随（固定间距，不拉伸）────────
+  for (let i = 1; i < snake.segs.length; i++) {
+    const prev = snake.segs[i - 1];
+    const cur  = snake.segs[i];
+    const ddx  = cur.x - prev.x;
+    const ddy  = cur.y - prev.y;
+    const d    = Math.hypot(ddx, ddy);
+    if (d > SEG_DIST) {
+      const ratio = SEG_DIST / d;
+      cur.x = prev.x + ddx * ratio;
+      cur.y = prev.y + ddy * ratio;
     }
   }
 
-  if (Math.hypot(h.x - food.x, h.y - food.y) <= headRadius + food.r) {
+  // 吃食物
+  if (Math.hypot(h.x - food.x, h.y - food.y) <= HEAD_R + food.r) {
     handleEatFood();
   }
 
-  if (item.active) {
-    if (Math.hypot(h.x - item.x, h.y - item.y) <= headRadius + item.r) {
-      const t = item.type;
-      item.active = false;
-      item.type = '';
-      applyItem(t);
-    }
+  // 吃道具
+  if (item.active && Math.hypot(h.x - item.x, h.y - item.y) <= HEAD_R + item.r) {
+    const t = item.type;
+    item.active = false;
+    item.type   = '';
+    applyItem(t);
   }
 
+  // 自碰
   if (checkSelfCollision()) {
     endGame(false);
-    return;
   }
 }
 
+// ── 渲染 ──────────────────────────────────────
 function drawCircle(x, y, r, fillStyle, strokeStyle = null, lineWidth = 2) {
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = fillStyle;
   ctx.fill();
   if (strokeStyle) {
-    ctx.lineWidth = lineWidth;
+    ctx.lineWidth   = lineWidth;
     ctx.strokeStyle = strokeStyle;
     ctx.stroke();
   }
@@ -362,43 +388,175 @@ function drawCircle(x, y, r, fillStyle, strokeStyle = null, lineWidth = 2) {
 
 function drawWalls() {
   if (wrapEnabled) return;
-  const left = 0;
-  const top = 0;
-  const right = worldW;
-  const bottom = worldH;
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(79,172,254,0.22)';
+  ctx.lineWidth   = 3;
+  ctx.setLineDash([12, 8]);
   ctx.beginPath();
-  ctx.rect(left - camX, top - camY, right - left, bottom - top);
+  ctx.rect(-camX, -camY, worldW, worldH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+// 绘制网格（给玩家空间感）
+function drawGrid() {
+  const step = 80;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth   = 1;
+  const startX = Math.floor(camX / step) * step;
+  const startY = Math.floor(camY / step) * step;
+  ctx.beginPath();
+  for (let x = startX; x < camX + viewW + step; x += step) {
+    ctx.moveTo(x - camX, 0);
+    ctx.lineTo(x - camX, viewH);
+  }
+  for (let y = startY; y < camY + viewH + step; y += step) {
+    ctx.moveTo(0, y - camY);
+    ctx.lineTo(viewW, y - camY);
+  }
   ctx.stroke();
 }
 
+function drawFood() {
+  const fx = food.x - camX;
+  const fy = food.y - camY;
+  // 发光效果
+  const grd = ctx.createRadialGradient(fx, fy, 0, fx, fy, food.r * 2.2);
+  grd.addColorStop(0,   'rgba(0,242,254,0.55)');
+  grd.addColorStop(1,   'rgba(0,242,254,0)');
+  ctx.beginPath();
+  ctx.arc(fx, fy, food.r * 2.2, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+  drawCircle(fx, fy, food.r, '#00f2fe', 'rgba(255,255,255,0.5)', 2);
+}
+
+function drawItem() {
+  if (!item.active) return;
+  const ix = item.x - camX;
+  const iy = item.y - camY;
+  const label = item.type === 'slow' ? '缓' : item.type === 'multi' ? '倍' : '穿';
+  const color = item.type === 'slow' ? '#2ed573' : item.type === 'multi' ? '#ffd32a' : '#ffa502';
+
+  // 脉冲光晕
+  const pulse = 0.7 + 0.3 * Math.sin(nowMs / 300);
+  const grd = ctx.createRadialGradient(ix, iy, 0, ix, iy, item.r * 2.5 * pulse);
+  grd.addColorStop(0, color.replace(')', ',0.4)').replace('rgb', 'rgba'));
+  grd.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(ix, iy, item.r * 2.5 * pulse, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  drawCircle(ix, iy, item.r, color, 'rgba(0,0,0,0.3)', 3);
+  ctx.fillStyle    = '#0b0f14';
+  ctx.font         = '900 14px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, ix, iy + 1);
+  ctx.textAlign    = 'start';
+  ctx.textBaseline = 'alphabetic';
+}
+
+function drawSnake() {
+  const n = snake.segs.length;
+  if (n === 0) return;
+
+  // 身体（从尾到头，头覆盖在最上层）
+  for (let i = n - 1; i >= 1; i--) {
+    const p = snake.segs[i];
+    const t = i / n;
+    // 尾部渐细
+    const r = lerp(BODY_R * 0.6, BODY_R, Math.min(1, (n - i) / 12));
+    // 颜色：头部亮蓝，尾部深蓝
+    const alpha = lerp(0.55, 0.9, 1 - t);
+    drawCircle(p.x - camX, p.y - camY, r, `rgba(79,172,254,${alpha.toFixed(2)})`);
+  }
+
+  // 头部
+  const h = snake.segs[0];
+  const hx = h.x - camX;
+  const hy = h.y - camY;
+
+  // 头部光晕
+  const hGrd = ctx.createRadialGradient(hx, hy, 0, hx, hy, HEAD_R * 2);
+  hGrd.addColorStop(0, 'rgba(79,172,254,0.35)');
+  hGrd.addColorStop(1, 'rgba(79,172,254,0)');
+  ctx.beginPath();
+  ctx.arc(hx, hy, HEAD_R * 2, 0, Math.PI * 2);
+  ctx.fillStyle = hGrd;
+  ctx.fill();
+
+  drawCircle(hx, hy, HEAD_R, '#4facfe', 'rgba(255,255,255,0.45)', 2.5);
+
+  // 眼睛（跟随朝向角）
+  const eyeOffset = 5;
+  const eyeR      = 2.5;
+  const perpX = -Math.sin(snake.angle);
+  const perpY =  Math.cos(snake.angle);
+  const fwdX  =  Math.cos(snake.angle) * 4;
+  const fwdY  =  Math.sin(snake.angle) * 4;
+  drawCircle(hx + fwdX + perpX * eyeOffset, hy + fwdY + perpY * eyeOffset, eyeR, '#fff');
+  drawCircle(hx + fwdX - perpX * eyeOffset, hy + fwdY - perpY * eyeOffset, eyeR, '#fff');
+  drawCircle(hx + fwdX + perpX * eyeOffset + Math.cos(snake.angle), hy + fwdY + perpY * eyeOffset + Math.sin(snake.angle), 1.3, '#1a1a2e');
+  drawCircle(hx + fwdX - perpX * eyeOffset + Math.cos(snake.angle), hy + fwdY - perpY * eyeOffset + Math.sin(snake.angle), 1.3, '#1a1a2e');
+}
+
+// 兼容性圆角矩形（Safari 15 以下不支持 roundRect）
+function fillRoundRect(x, y, w, h, r) {
+  if (ctx.roundRect) {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
 function drawHud() {
-  const padTop = 12 + (Number(getComputedStyle(document.documentElement).getPropertyValue('--safe-area-top').replace('px', '')) || 0);
+  const safeTop = Number(
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--safe-area-top').replace('px', '')
+  ) || 0;
+  const padTop  = 12 + safeTop;
   const padSide = 12;
 
-  const leftX = padSide;
-  const topY = padTop;
+  // 左侧：分数 + 时间
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  fillRoundRect(padSide, padTop, 160, 64, 10);
 
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(leftX, topY, 160, 60);
-  ctx.fillRect(viewW - padSide - 124, topY, 124, 60);
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.font      = '700 16px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.fillText(`分数  ${score.value}`,       padSide + 12, padTop + 24);
+  ctx.fillText(`时间  ${displayTime.value}`, padSide + 12, padTop + 48);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.font = '600 16px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
-  ctx.fillText(`分数 ${score.value}`, leftX + 12, topY + 24);
-  ctx.fillText(`时间 ${displayTime.value}`, leftX + 12, topY + 46);
+  // 右侧：难度 + 状态
+  const rw = 130;
+  const rx = viewW - padSide - rw;
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  fillRoundRect(rx, padTop, rw, 64, 10);
 
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.font = '600 14px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
-  ctx.fillText(difficultyLabel.value, viewW - padSide - 124 + 12, topY + 24);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.font      = '600 14px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.fillText(difficultyLabel.value, rx + 12, padTop + 24);
 
   const effects = [];
-  if (boostOn.value) effects.push('⚡');
-  if (nowMs < slowUntilMs) effects.push('缓');
-  if (nowMs < multiplierUntilMs) effects.push('倍');
-  if (wrapEnabled) effects.push('穿');
-  ctx.fillText(effects.join(' '), viewW - padSide - 124 + 12, topY + 46);
+  if (boostOn.value)             effects.push('⚡加速');
+  if (nowMs < slowUntilMs)       effects.push('🐢缓速');
+  if (nowMs < multiplierUntilMs) effects.push('✨倍分');
+  if (wrapEnabled)               effects.push('🌀穿墙');
+  ctx.fillStyle = '#4facfe';
+  ctx.font      = '600 12px -apple-system, BlinkMacSystemFont, sans-serif';
+  ctx.fillText(effects.join(' '), rx + 12, padTop + 48);
+
+  // 进度条（距离胜利）
+  const barW = viewW - padSide * 2;
+  const barH = 4;
+  const barY = padTop + 72;
+  const prog = Math.min(1, elapsedMs.value / WIN_MS);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  fillRoundRect(padSide, barY, barW, barH, 2);
+  ctx.fillStyle = '#4facfe';
+  fillRoundRect(padSide, barY, barW * prog, barH, 2);
 }
 
 function render() {
@@ -406,42 +564,15 @@ function render() {
   updateCamera();
   ctx.clearRect(0, 0, viewW, viewH);
 
+  // 背景
   ctx.fillStyle = '#0b0f14';
   ctx.fillRect(0, 0, viewW, viewH);
 
+  drawGrid();
   drawWalls();
-
-  drawCircle(food.x - camX, food.y - camY, food.r, '#00f2fe', 'rgba(255,255,255,0.35)', 2);
-
-  if (item.active) {
-    const label = item.type === 'slow' ? '缓' : item.type === 'multi' ? '倍' : '穿';
-    const color = item.type === 'slow' ? '#2ed573' : item.type === 'multi' ? '#4facfe' : '#ffa502';
-    drawCircle(item.x - camX, item.y - camY, item.r, color, 'rgba(0,0,0,0.25)', 3);
-    ctx.fillStyle = '#0b0f14';
-    ctx.font = '900 16px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(label, item.x - camX, item.y - camY + 1);
-    ctx.textAlign = 'start';
-    ctx.textBaseline = 'alphabetic';
-  }
-
-  const n = snake.points.length;
-  for (let i = n - 1; i >= 1; i--) {
-    const p = snake.points[i];
-    const t = i / n;
-    const r = lerp(bodyRadius, bodyRadius * 0.75, t);
-    drawCircle(p.x - camX, p.y - camY, r, 'rgba(79, 172, 254, 0.85)');
-  }
-  const h = snake.points[0];
-  drawCircle(h.x - camX, h.y - camY, headRadius, '#4facfe', 'rgba(255,255,255,0.35)', 2);
-
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  const ex = h.x - camX + snake.dir.x * 5;
-  const ey = h.y - camY + snake.dir.y * 5;
-  drawCircle(ex + -snake.dir.y * 4, ey + snake.dir.x * 4, 2.3, 'rgba(0,0,0,0.75)');
-  drawCircle(ex + snake.dir.y * 4, ey + -snake.dir.x * 4, 2.3, 'rgba(0,0,0,0.75)');
-
+  drawFood();
+  drawItem();
+  drawSnake();
   drawHud();
 }
 
@@ -461,46 +592,56 @@ function tick(ts) {
   rafId = requestAnimationFrame(tick);
 }
 
-function screenToWorld(clientX, clientY) {
-  const canvas = canvasRef.value;
-  const rect = canvas.getBoundingClientRect();
-  const x = (clientX - rect.left) * (viewW / rect.width);
-  const y = (clientY - rect.top) * (viewH / rect.height);
-  return { x: camX + x, y: camY + y };
-}
+// ── 输入处理 ──────────────────────────────────
+// 核心改变：记录触摸的「屏幕坐标」，在 update() 里
+// 实时计算相对蛇头的方向角，而不是追世界坐标点
+// 这样手指移动时方向立刻响应，不会有追点的延迟感
 
-function updateTargetFromEvent(e) {
-  const pt = screenToWorld(e.clientX, e.clientY);
-  targetWorld = pt;
+function getScreenXY(e) {
+  const canvas = canvasRef.value;
+  if (!canvas) return { x: 0, y: 0 };
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (viewW / rect.width),
+    y: (e.clientY - rect.top)  * (viewH / rect.height)
+  };
 }
 
 function handlePointerDown(e) {
   if (!canvasRef.value) return;
   canvasRef.value.setPointerCapture?.(e.pointerId);
   isPointerDown = true;
-  updateTargetFromEvent(e);
 
+  const { x, y } = getScreenXY(e);
+  touchScreenX   = x;
+  touchScreenY   = y;
+  hasTouchTarget = true;
+
+  // 双击检测（同一区域 280ms 内两次点击 → 切换加速）
   const now = performance.now();
-  const dx = e.clientX - lastTapX;
-  const dy = e.clientY - lastTapY;
-  const near = Math.hypot(dx, dy) < 40;
+  const near = Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) < 50;
   if (now - lastTapMs < 280 && near) {
     boostOn.value = !boostOn.value;
     lastTapMs = 0;
   } else {
     lastTapMs = now;
-    lastTapX = e.clientX;
-    lastTapY = e.clientY;
+    lastTapX  = e.clientX;
+    lastTapY  = e.clientY;
   }
 }
 
 function handlePointerMove(e) {
   if (!isPointerDown) return;
-  updateTargetFromEvent(e);
+  const { x, y } = getScreenXY(e);
+  touchScreenX   = x;
+  touchScreenY   = y;
+  hasTouchTarget = true;
 }
 
 function handlePointerUp() {
   isPointerDown = false;
+  // 松手后保持最后方向，不清除 hasTouchTarget
+  // 这样蛇会继续朝最后指向的方向走
 }
 
 function togglePause() {
@@ -510,6 +651,7 @@ function togglePause() {
 
 function resume() {
   paused.value = false;
+  lastTs = 0; // 防止暂停后 dt 过大
 }
 
 function restart() {
@@ -529,7 +671,6 @@ onMounted(() => {
   setCanvasSize();
   resetGame();
   leaderboard.value = loadSnakeLeaderboard();
-
   window.addEventListener('resize', setCanvasSize, { passive: true });
   rafId = requestAnimationFrame(tick);
 });
