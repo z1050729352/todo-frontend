@@ -174,7 +174,37 @@ function seededRandom() {
   rngSeed = (rngSeed * 9301 + 49297) % 233280;
   return rngSeed / 233280;
 }
-const getSeededRandom = seededRandom;
+
+// ── 双随机数生成器设计 ────────────────────────────────────────────────────────
+// 联机模式下存在两类随机数需求：
+//
+// 1. 「世界随机数」(getSeededRandom)：决定敌机生成、boss 行为等世界状态
+//    → 只有 host 调用，guest 端绝对不能消耗，否则序列错位
+//
+// 2. 「视觉随机数」(getVisualRandom)：决定粒子、特效、背景星星等纯视觉效果
+//    → 两端各自独立，不影响世界同步
+//
+// 单人模式下两者合并为同一个生成器（行为与原来完全一致）
+// ─────────────────────────────────────────────────────────────────────────────
+let visualSeed = Date.now() % 233280 || 1;
+function visualRandom() {
+  visualSeed = (visualSeed * 9301 + 49297) % 233280;
+  return visualSeed / 233280;
+}
+
+// 世界随机数：联机时只有 host 调用；单人时等同于 seededRandom
+function getSeededRandom() {
+  if (props.isMultiplayer && !isHost) {
+    // guest 端：用视觉随机数代替，不消耗世界随机数序列
+    return visualRandom();
+  }
+  return seededRandom();
+}
+
+// 视觉随机数：两端各自独立，不影响同步
+function getVisualRandom() {
+  return props.isMultiplayer ? visualRandom() : seededRandom();
+}
 
 const SIM_TICK_HZ = 60;
 const SIM_TICK_MS = 1000 / SIM_TICK_HZ;
@@ -650,7 +680,7 @@ function applyPlaneSnapshot(snapshot) {
     if (!id) continue;
     let enemy = netEnemyMap.get(id);
     if (!enemy) {
-      enemy = new Enemy(Number(s.level) || 1);
+      enemy = new Enemy(Number(s.level) || 1, true);
       enemy.id = id;
       netEnemyMap.set(id, enemy);
     }
@@ -816,7 +846,7 @@ function applyNetStateSnapshot(snapshot) {
       if (!id) continue;
       let enemy = next.get(id) || netEnemyMap.get(id);
       if (!enemy) {
-        enemy = new Enemy(Number(s.level) || 1);
+        enemy = new Enemy(Number(s.level) || 1, true);
         enemy.id = id;
       }
       if (Number.isFinite(s.x)) enemy.x = s.x;
@@ -989,7 +1019,8 @@ function applyPlaneEvt(evt, evtTick) {
     if (!id) return;
     let enemy = netEnemyMap.get(id);
     if (!enemy) {
-      enemy = new Enemy(Number(s.level) || 1);
+      // fromNet=true：跳过随机数调用，所有属性由网络数据覆盖
+      enemy = new Enemy(Number(s.level) || 1, true);
       enemy.id = id;
     }
     if (Number.isFinite(s.x)) enemy.x = s.x;
@@ -1143,10 +1174,10 @@ class BackgroundLayer {
     this.elements = [];
     for (let i = 0; i < count; i++) {
       this.elements.push({
-        x: getSeededRandom() * 800, // 初始宽度，会在 resize 后调整
-        y: getSeededRandom() * 1000,
-        size: getSeededRandom() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
-        opacity: getSeededRandom() * 0.5 + 0.2
+        x: getVisualRandom() * 800,
+        y: getVisualRandom() * 1000,
+        size: getVisualRandom() * (sizeRange[1] - sizeRange[0]) + sizeRange[0],
+        opacity: getVisualRandom() * 0.5 + 0.2
       });
     }
     this.color = color;
@@ -1157,7 +1188,7 @@ class BackgroundLayer {
       el.y += this.speed * (delta / 16.67);
       if (el.y > canvasHeight) {
         el.y = -20;
-        el.x = getSeededRandom() * canvasWidth;
+        el.x = getVisualRandom() * canvasWidth;
       }
     });
   }
@@ -1345,7 +1376,7 @@ function drawHexagon(x, y, size) {
 function createExhaustParticles(x, y) {
   if (particles.length >= getParticleCap()) return;
   for (let i = 0; i < 2; i++) {
-    createParticle(x, y, '#00FFFF', 0.8 + getSeededRandom() * 0.4, 'exhaust');
+    createParticle(x, y, '#00FFFF', 0.8 + getVisualRandom() * 0.4, 'exhaust');
   }
 }
 
@@ -1357,8 +1388,8 @@ class DamageIndicator {
     this.amount = amount;
     this.isCrit = isCrit;
     this.life = 1.0;
-    this.vx = (getSeededRandom() - 0.5) * 2;
-    this.vy = -2 - getSeededRandom() * 2;
+    this.vx = (getVisualRandom() - 0.5) * 2;
+    this.vy = -2 - getVisualRandom() * 2;
   }
 
   update(delta) {
@@ -1400,7 +1431,7 @@ class Player {
     }
 
     // 引擎喷焰 (粒子)
-    if (getSeededRandom() < 0.6 && !this.isOther) { // 其他玩家不生成粒子减少消耗
+    if (getVisualRandom() < 0.6 && !this.isOther) { // 其他玩家不生成粒子减少消耗
       createExhaustParticles(this.x, this.y + 20);
     }
 
@@ -1737,7 +1768,7 @@ class Bullet {
 
     let trailChance = perfTier >= 2 ? 0.06 : (perfTier === 1 ? 0.12 : 0.22);
     if (props.isMultiplayer) trailChance *= 0.7;
-    if (particles.length < getParticleCap() - 30 && getSeededRandom() < trailChance) {
+    if (particles.length < getParticleCap() - 30 && getVisualRandom() < trailChance) {
       const color = this.bulletType === 'burst' ? '#5c6bc0' :
                    (this.bulletType === 'laser' ? '#00FFFF' :
                    (this.bulletType === 'pulse' ? '#3f51b5' :
@@ -1881,8 +1912,11 @@ class Bullet {
 }
 
 class Enemy {
-  constructor(level = 1) {
-    this.x = getSeededRandom() * (canvas.value.width - 40) + 20;
+  constructor(level = 1, fromNet = false) {
+    // fromNet=true 时跳过随机数调用（guest 端接收网络事件创建敌机时使用）
+    // 这样 guest 端不会消耗世界随机数序列，保证两端 rngSeed 一致
+    const rnd = fromNet ? getVisualRandom : getSeededRandom;
+    this.x = rnd() * (canvas.value.width - 40) + 20;
     this.y = -30;
     this.width = 35;
     this.height = 35;
@@ -1913,14 +1947,14 @@ class Enemy {
     
     if (level === 1) {
       this.type = 'normal';
-      this.speed = dynamicSpeed + getSeededRandom() * 1;
+      this.speed = dynamicSpeed + rnd() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
       this.shootPattern = 'single';
     } else if (level === 2) {
       this.type = 'fast';
-      this.speed = dynamicSpeed * 1.3 + getSeededRandom() * 1;
+      this.speed = dynamicSpeed * 1.3 + rnd() * 1;
       this.horizontalSpeed = 0;
       this.pattern = 'straight';
       this.canShoot = false;
@@ -1928,7 +1962,7 @@ class Enemy {
     } else if (level === 3) {
       this.type = 'shooter';
       this.speed = dynamicSpeed * 0.8;
-      this.horizontalSpeed = (getSeededRandom() - 0.5) * 1.5;
+      this.horizontalSpeed = (rnd() - 0.5) * 1.5;
       this.pattern = 'zigzag';
       this.canShoot = true;
       this.shootPattern = 'single';
@@ -1942,10 +1976,10 @@ class Enemy {
     } else {
       this.type = 'elite';
       this.speed = dynamicSpeed * 0.7;
-      this.horizontalSpeed = (getSeededRandom() - 0.5) * 2;
-      this.pattern = getSeededRandom() < 0.5 ? 'zigzag' : 'sine';
+      this.horizontalSpeed = (rnd() - 0.5) * 2;
+      this.pattern = rnd() < 0.5 ? 'zigzag' : 'sine';
       this.canShoot = true;
-      this.shootPattern = getSeededRandom() < 0.5 ? 'triple' : 'spread';
+      this.shootPattern = rnd() < 0.5 ? 'triple' : 'spread';
     }
     
     this.speed = Math.max(1.5, this.speed);
@@ -2779,19 +2813,19 @@ class Particle {
     this.active = true;
     
     if (type === 'trail') {
-      this.vx = (getSeededRandom() - 0.5);
-      this.vy = (getSeededRandom() - 0.5);
+      this.vx = (getVisualRandom() - 0.5);
+      this.vy = (getVisualRandom() - 0.5);
       this.decay = 0.05;
     } else if (type === 'exhaust') {
-      this.vx = (getSeededRandom() - 0.5) * 2;
-      this.vy = getSeededRandom() * 3 + 2;
+      this.vx = (getVisualRandom() - 0.5) * 2;
+      this.vy = getVisualRandom() * 3 + 2;
       this.decay = 0.04;
     } else {
-      const angle = getSeededRandom() * Math.PI * 2;
-      const speed = getSeededRandom() * 4 * size;
+      const angle = getVisualRandom() * Math.PI * 2;
+      const speed = getVisualRandom() * 4 * size;
       this.vx = Math.cos(angle) * speed;
       this.vy = Math.sin(angle) * speed;
-      this.decay = 0.02 + getSeededRandom() * 0.03;
+      this.decay = 0.02 + getVisualRandom() * 0.03;
     }
   }
 
@@ -3382,12 +3416,12 @@ function renderGameEffects(currentTime) {
     if (elapsed % 200 < 50) {
       for (let i = 0; i < 10; i++) {
         victoryEffect.particles.push({
-          x: getSeededRandom() * canvas.value.width,
-          y: getSeededRandom() * canvas.value.height * 0.5,
-          vx: (getSeededRandom() - 0.5) * 10,
-          vy: (getSeededRandom() - 0.5) * 10,
+          x: getVisualRandom() * canvas.value.width,
+          y: getVisualRandom() * canvas.value.height * 0.5,
+          vx: (getVisualRandom() - 0.5) * 10,
+          vy: (getVisualRandom() - 0.5) * 10,
           life: 1,
-          color: `hsl(${getSeededRandom() * 360}, 100%, 50%)`
+          color: `hsl(${getVisualRandom() * 360}, 100%, 50%)`
         });
       }
     }
@@ -3824,8 +3858,8 @@ function gameLoop(currentTime) {
     if (currentTime > screenShake.endTime) {
       screenShake.active = false;
     } else {
-      const shakeX = (getSeededRandom() - 0.5) * screenShake.intensity;
-      const shakeY = (getSeededRandom() - 0.5) * screenShake.intensity;
+      const shakeX = (getVisualRandom() - 0.5) * screenShake.intensity;
+      const shakeY = (getVisualRandom() - 0.5) * screenShake.intensity;
       ctx.save();
       ctx.translate(shakeX, shakeY);
     }
@@ -4047,7 +4081,7 @@ function gameLoop(currentTime) {
         }
         
         // 计算实际伤害（考虑强攻 buff、暴击、防御和穿甲）
-        const isCrit = getSeededRandom() < 0.15;
+        const isCrit = getVisualRandom() < 0.15;
         const boostDamage = Math.max(0, Math.floor(Number(playerWeapon.value.damageBoost) || 0));
         const baseDamage = (bullet.damage || 5) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -4137,7 +4171,7 @@ function gameLoop(currentTime) {
           continue;
         }
 
-        const isCrit = getSeededRandom() < 0.15;
+        const isCrit = getVisualRandom() < 0.15;
         const boostDamage = Math.max(0, Math.floor(Number(teammateWeapon.value.damageBoost) || 0));
         const baseDamage = (bullet.damage || 5) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -4274,7 +4308,7 @@ function gameLoop(currentTime) {
           bullet.explode(enemy);
         }
         
-        const isCrit = getSeededRandom() < 0.15;
+        const isCrit = getVisualRandom() < 0.15;
         const boostDamage = Math.max(0, Math.floor(Number(playerWeapon.value.damageBoost) || 0));
         const baseDamage = (bullet.damage || 1) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
@@ -4332,7 +4366,7 @@ function gameLoop(currentTime) {
           bullet.explode(enemy);
         }
 
-        const isCrit = getSeededRandom() < 0.15;
+        const isCrit = getVisualRandom() < 0.15;
         const boostDamage = Math.max(0, Math.floor(Number(teammateWeapon.value.damageBoost) || 0));
         const baseDamage = (bullet.damage || 1) + boostDamage;
         const critMultiplier = isCrit ? 2 : 1;
