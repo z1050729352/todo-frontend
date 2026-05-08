@@ -5,39 +5,6 @@ import { getSocket } from '../socket';
 import { apiFetchJson } from '../utils/api';
 import { showToast } from '../utils/toast';
 
-// ── 局域网检测 ────────────────────────────────────────────────────────────────
-// 通过 WebRTC ICE candidate 获取本机局域网 IP 前缀（如 192.168.1.x → 192.168.1）
-// 两端前缀相同 → 同一局域网
-async function getLocalIpPrefix() {
-  return new Promise((resolve) => {
-    try {
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      pc.createDataChannel('');
-      const ips = new Set();
-      pc.onicecandidate = (e) => {
-        if (!e.candidate) {
-          pc.close();
-          // 取第一个私有 IP 的 /24 前缀
-          for (const ip of ips) {
-            if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) {
-              resolve(ip.split('.').slice(0, 3).join('.'));
-              return;
-            }
-          }
-          resolve(null);
-          return;
-        }
-        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-        if (m) ips.add(m[1]);
-      };
-      pc.createOffer().then((o) => pc.setLocalDescription(o));
-      setTimeout(() => { pc.close(); resolve(null); }, 2000);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
 const props = defineProps({
   roomData: Object,
   playerName: String

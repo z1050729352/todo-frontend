@@ -156,42 +156,11 @@ async function inviteFriendLan(friendId, gameType) {
   if (getInviteCooldown(friendId, `${gameType}_lan`) > 0) return;
   const socket = getSocket();
   if (!socket) return;
-  // 获取本机局域网 IP 前缀
-  const prefix = await getLanIpPrefix();
-  if (!prefix) {
-    showToast('无法获取局域网 IP，请确认在同一网络下', 'warning');
-    return;
-  }
-  socket.emit('invite_friend', { friendId, gameType, lanPrefix: prefix, isLan: true });
+  // 局域网模式：不做 IP 检测（Safari 限制），直接发送带 isLan 标记的邀请
+  // 由双方自行确认是否在同一 WiFi 下
+  socket.emit('invite_friend', { friendId, gameType, isLan: true });
   inviteCooldowns.value[getInviteKey(friendId, `${gameType}_lan`)] = 10;
-  showToast('局域网邀请已发送', 'success');
-}
-
-async function getLanIpPrefix() {
-  return new Promise((resolve) => {
-    try {
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      pc.createDataChannel('');
-      const ips = new Set();
-      pc.onicecandidate = (e) => {
-        if (!e.candidate) {
-          pc.close();
-          for (const ip of ips) {
-            if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) {
-              resolve(ip.split('.').slice(0, 3).join('.'));
-              return;
-            }
-          }
-          resolve(null);
-          return;
-        }
-        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-        if (m) ips.add(m[1]);
-      };
-      pc.createOffer().then((o) => pc.setLocalDescription(o));
-      setTimeout(() => { pc.close(); resolve(null); }, 2000);
-    } catch { resolve(null); }
-  });
+  showToast('局域网邀请已发送（请确认双方在同一 WiFi）', 'success');
 }
 
 onMounted(() => {

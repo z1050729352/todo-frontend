@@ -18,34 +18,6 @@ import GlobalLoading from './components/GlobalLoading.vue';
 import { showToast } from './utils/toast';
 import { createInviteInbox } from './utils/inviteInbox';
 
-// 获取本机局域网 IP 前缀（用于局域网邀请检测）
-async function getLanIpPrefix() {
-  return new Promise((resolve) => {
-    try {
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      pc.createDataChannel('');
-      const ips = new Set();
-      pc.onicecandidate = (e) => {
-        if (!e.candidate) {
-          pc.close();
-          for (const ip of ips) {
-            if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) {
-              resolve(ip.split('.').slice(0, 3).join('.'));
-              return;
-            }
-          }
-          resolve(null);
-          return;
-        }
-        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
-        if (m) ips.add(m[1]);
-      };
-      pc.createOffer().then((o) => pc.setLocalDescription(o));
-      setTimeout(() => { pc.close(); resolve(null); }, 2000);
-    } catch { resolve(null); }
-  });
-}
-
 const appState = ref('auth'); // auth, hub, game-select, room, playing, game-over, leaderboard-view
 const currentGame = ref('');
 const playerName = ref('');
@@ -116,26 +88,15 @@ function setupSocketListeners() {
     const gameType = String(data?.gameType || '');
     const fromUsername = String(data?.fromUsername || '');
     const isLan = Boolean(data?.isLan);
-    const lanPrefix = String(data?.lanPrefix || '');
     if (!inviteId || !fromUserId || !gameType) return;
     if (!inviteInbox.shouldPrompt(inviteId)) return;
     if (inviteProcessing.has(inviteId)) return;
     inviteProcessing.add(inviteId);
 
-    // 局域网邀请：先检测本机 IP 前缀是否一致
-    if (isLan && lanPrefix) {
-      const myPrefix = await getLanIpPrefix();
-      if (!myPrefix || myPrefix !== lanPrefix) {
-        showToast(`好友 ${fromUsername} 发起了局域网邀请，但你们不在同一局域网`, 'warning', 5000);
-        socket.emit('reject_invite', { inviteId, fromUserId, gameType });
-        setTimeout(() => inviteProcessing.delete(inviteId), 1200);
-        return;
-      }
-    }
-
-    const modeLabel = isLan ? '【局域网】' : '';
+    const modeLabel = isLan ? '【局域网·低延迟】' : '';
     const gameLabel = gameType === 'plane-war' ? '飞机大战' : '俄罗斯方块';
-    const ok = window.confirm(`好友 ${fromUsername} 邀请你玩 ${modeLabel}${gameLabel}，是否接受？`);
+    const hint = isLan ? '\n（请确认双方在同一 WiFi 下）' : '';
+    const ok = window.confirm(`好友 ${fromUsername} 邀请你玩 ${modeLabel}${gameLabel}，是否接受？${hint}`);
     inviteInbox.markHandled(inviteId, ok ? 'accepted' : 'rejected');
     if (ok) {
       socket.emit('accept_invite', { inviteId, fromUserId, gameType });
