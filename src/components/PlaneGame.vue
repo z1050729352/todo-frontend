@@ -166,6 +166,7 @@ const wallCount = ref(0);
 const gameTime = ref(0);
 let startTime = 0;
 let lastTime = 0;
+let simAccumMs = 0; // 联机模式：累积真实时间，按 SIM_TICK_MS 步进
 let mapOffset = 0;
 const mapSpeed = 0.5;
 
@@ -2941,6 +2942,7 @@ function restartGame() {
   if (useDeterministicNet) {
     simTick = 0;
     simNowMs = 0;
+    simAccumMs = 0;
     lastTime = 0;
     startTime = 0;
     if (props.isMultiplayer && isHost) {
@@ -3787,17 +3789,30 @@ function gameLoop(currentTime) {
 
   const frameTime = currentTime;
   if (useDeterministicNet) {
-    simTick += 1;
-    simNowMs = simTick * SIM_TICK_MS;
-    currentTime = simNowMs;
-    drainPlaneEventsForTick(simTick);
-    if (props.isMultiplayer && !isHost && simTick % 60 === 0) {
-      followerHashesByTick.set(simTick, buildNetStateHash());
-      if (followerHashesByTick.size > 12) {
-        const keys = Array.from(followerHashesByTick.keys()).sort((a, b) => a - b);
-        for (let i = 0; i < keys.length - 12; i++) followerHashesByTick.delete(keys[i]);
+    // ── 用真实时间戳控制 tick 推进速度 ──────────────────────────────────────
+    // 问题：每帧无条件 simTick+=1，120fps 设备时间流速是 60fps 的 2 倍
+    // 修复：用真实帧间隔累积，每累积够 SIM_TICK_MS 才推进一个 tick
+    // 这样无论设备帧率多少，游戏时间流速都与真实时间一致
+    const realDelta = lastTime > 0 ? Math.min(currentTime - lastTime, 100) : SIM_TICK_MS;
+    simAccumMs += realDelta;
+
+    // 每帧最多推进 3 个 tick，防止卡顿后一次性快进太多
+    let ticksThisFrame = 0;
+    while (simAccumMs >= SIM_TICK_MS && ticksThisFrame < 3) {
+      simAccumMs -= SIM_TICK_MS;
+      simTick += 1;
+      simNowMs = simTick * SIM_TICK_MS;
+      drainPlaneEventsForTick(simTick);
+      if (props.isMultiplayer && !isHost && simTick % 60 === 0) {
+        followerHashesByTick.set(simTick, buildNetStateHash());
+        if (followerHashesByTick.size > 12) {
+          const keys = Array.from(followerHashesByTick.keys()).sort((a, b) => a - b);
+          for (let i = 0; i < keys.length - 12; i++) followerHashesByTick.delete(keys[i]);
+        }
       }
+      ticksThisFrame++;
     }
+    currentTime = simNowMs;
   }
 
   const delta = useDeterministicNet ? SIM_TICK_MS : (currentTime - lastTime);
@@ -4891,6 +4906,7 @@ onMounted(() => {
   if (useDeterministicNet) {
     simTick = 0;
     simNowMs = 0;
+    simAccumMs = 0;
     lastTime = 0;
     startTime = 0;
     // host 立即存一个 tick=0 的快照，确保 guest 开局请求快照时能拿到
