@@ -4,6 +4,11 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
 
+  // 构建时注入时间戳，每次打包自动变化，无需手动维护版本号
+  define: {
+    __BUILD_TIME__: JSON.stringify(Date.now()),
+  },
+
   // 构建优化
   build: {
     // 目标现代浏览器，减少 polyfill 体积

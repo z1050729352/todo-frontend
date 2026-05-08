@@ -3,8 +3,11 @@ import { ref, onMounted } from 'vue';
 import FriendSystem from './FriendSystem.vue';
 import { apiFetchJson } from '../utils/api';
 
-const FRONTEND_VER = 2;
+const FRONTEND_VER = 3;
 const backendVer = ref('?');
+
+// 前端版本：取构建时间戳后6位，每次打包自动变化
+const frontendBuild = String(__BUILD_TIME__).slice(-6);
 
 onMounted(async () => {
   try {
@@ -139,7 +142,7 @@ function handleLogout() {
     <div class="hub-footer">
       <p>更多游戏持续更新中...</p>
     </div>
-    <div class="version-badge">v{{ FRONTEND_VER }}.{{ backendVer }}</div>
+    <div class="version-badge">fe:{{ frontendBuild }} be:{{ backendVer }}</div>
   </div>
 </template>
 
