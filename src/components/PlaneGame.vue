@@ -4510,6 +4510,19 @@ function gameLoop(currentTime) {
     netFlushHost(socket);
   }
 
+  // guest 端也定期把自己的分数上报给 host，让 host 能正确显示队友分数
+  if (socket && props.isMultiplayer && !isHost) {
+    const nowMs = Number(currentTime) || 0;
+    if (nowMs - lastScoreSyncAt >= 500 || lastScoreSyncHostScore !== score.value) {
+      lastScoreSyncAt = nowMs;
+      lastScoreSyncHostScore = score.value;
+      socket.emit('game_action', {
+        roomId: props.roomData.roomId,
+        action: { type: 'guest_score_report', guestScore: score.value }
+      });
+    }
+  }
+
   animationId = requestAnimationFrame(gameLoop);
 }
 
@@ -4715,10 +4728,18 @@ onMounted(() => {
           const hostScore = Number(action.hostScore) || 0;
           const guestScore = Number(action.guestScore) || 0;
           if (isHost) {
+            // host 收到：更新队友（guest）的分数显示
             teammateScore.value = guestScore;
           } else {
-            score.value = guestScore;
+            // guest 收到：只更新队友（host）的分数显示，自己的分数由本地击杀逻辑维护
             teammateScore.value = hostScore;
+            // 注意：不覆盖 score.value，避免本地击杀分数被远端覆盖
+          }
+        } else if (action.type === 'guest_score_report') {
+          // host 收到 guest 上报的分数，更新队友分数显示
+          if (isHost) {
+            const guestScore = Number(action.guestScore) || 0;
+            teammateScore.value = guestScore;
           }
         } else if (action.type === 'env_powerup') {
           if (!isHost) return;
@@ -4808,9 +4829,18 @@ onMounted(() => {
         const payload = data && typeof data === 'object' ? (data.payload || data) : null;
         if (!payload || typeof payload !== 'object') return;
         if (!Number.isFinite(payload.tick)) return;
-        const snap = hostSnapshotsByTick.get(payload.tick);
+        // 先找精确 tick，找不到就用最近的快照兜底（解决游戏开始时快照为空的问题）
+        let snap = hostSnapshotsByTick.get(payload.tick);
+        let snapTick = payload.tick;
+        if (!snap && hostSnapshotsByTick.size > 0) {
+          // 找最近的已有快照
+          const keys = Array.from(hostSnapshotsByTick.keys()).sort((a, b) => a - b);
+          const best = keys.reduce((prev, cur) => Math.abs(cur - payload.tick) < Math.abs(prev - payload.tick) ? cur : prev, keys[0]);
+          snap = hostSnapshotsByTick.get(best);
+          snapTick = best;
+        }
         if (!snap) return;
-        socket.emit('plane_state_correct', { roomId: props.roomData.roomId, toUserId: data?.fromUserId, payload: { tick: payload.tick, snapshot: snap } });
+        socket.emit('plane_state_correct', { roomId: props.roomData.roomId, toUserId: data?.fromUserId, payload: { tick: snapTick, snapshot: snap } });
       });
 
       socket.on('plane_drop', (drop) => {
@@ -4829,6 +4859,10 @@ onMounted(() => {
     simNowMs = 0;
     lastTime = 0;
     startTime = 0;
+    // host 立即存一个 tick=0 的快照，确保 guest 开局请求快照时能拿到
+    if (isHost) {
+      hostSnapshotsByTick.set(0, buildNetStateSnapshot());
+    }
   } else {
     startTime = performance.now();
   }

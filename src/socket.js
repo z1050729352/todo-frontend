@@ -2,50 +2,50 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
-export const initSocket = (token) => {
-    if (socket) return socket;
-    
-    let defaultSocketUrl = window.location.origin;
-    if (import.meta.env.VITE_API_URL) {
-        try {
-            const apiUrl = new URL(import.meta.env.VITE_API_URL, window.location.origin);
-            defaultSocketUrl = apiUrl.origin || window.location.origin;
-        } catch (e) {
-            console.warn('Invalid VITE_API_URL format:', e);
-        }
+function resolveServerUrl() {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl) {
+    try {
+      return new URL(apiUrl, window.location.origin).origin;
+    } catch {
+      // fallthrough
     }
-    
-    const serverUrl = import.meta.env.VITE_SOCKET_URL || defaultSocketUrl;
+  }
+  return window.location.origin;
+}
 
-    socket = io(serverUrl, {
-        auth: { token },
-        rememberUpgrade: true,
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 500,
-        reconnectionDelayMax: 3000,
-        timeout: 8000
-    });
+export function initSocket(token) {
+  if (socket) return socket;
 
-    socket.on('connect', () => {
-        console.log('Socket connected:', socket.id);
-    });
+  const serverUrl = import.meta.env.VITE_SOCKET_URL || resolveServerUrl();
 
-    socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason);
-    });
+  socket = io(serverUrl, {
+    auth: { token },
+    // 优先 WebSocket，降级到 polling（香港服务器延迟低，WebSocket 稳定）
+    transports: ['websocket', 'polling'],
+    // 升级后记住，避免重复握手
+    rememberUpgrade: true,
+    // 重连策略：快速重试，指数退避
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 300,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.3,
+    // 连接超时（香港节点延迟低，可以收紧）
+    timeout: 6000,
+    // 心跳间隔（保持连接活跃）
+    pingInterval: 20000,
+    pingTimeout: 10000,
+  });
 
-    socket.on('connect_error', (err) => {
-        console.error('Socket connect error:', err.message);
-    });
-
-    return socket;
-};
+  return socket;
+}
 
 export const getSocket = () => socket;
-export const disconnectSocket = () => {
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
-};
+
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+}
