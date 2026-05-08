@@ -1,7 +1,23 @@
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { setAuthData } from '../utils/auth';
 import { apiFetchJson } from '../utils/api';
+
+// ── 版本号 ────────────────────────────────────────────────────────────────────
+// 前端版本：每次前端发版手动 +1
+const FRONTEND_VER = 2;
+// 后端版本：从 /health 接口拿
+const backendVer = ref('?');
+
+onMounted(async () => {
+  try {
+    const data = await apiFetchJson('/health');
+    backendVer.value = data?.ver ?? '?';
+  } catch {
+    backendVer.value = '?';
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 const emit = defineEmits(['loginSuccess', 'guestAccess']);
 
@@ -100,6 +116,7 @@ const handleLoginSuccess = (data) => {
 <template>
   <div class="auth-container">
     <div class="stars"></div>
+    <div class="version-badge">v{{ FRONTEND_VER }}.{{ backendVer }}</div>
     <div class="auth-card">
       <h1 class="title">{{ isLoginMode ? '欢迎回来' : '注册账号' }}</h1>
       <div class="form">
@@ -164,6 +181,18 @@ const handleLoginSuccess = (data) => {
   justify-content: center;
   position: relative;
   overflow: hidden;
+}
+
+.version-badge {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: 'Monaco', monospace;
+  z-index: 10;
+  pointer-events: none;
+  letter-spacing: 0.5px;
 }
 
 .stars {
