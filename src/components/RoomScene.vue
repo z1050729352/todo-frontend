@@ -5,6 +5,39 @@ import { getSocket } from '../socket';
 import { apiFetchJson } from '../utils/api';
 import { showToast } from '../utils/toast';
 
+// ── 局域网检测 ────────────────────────────────────────────────────────────────
+// 通过 WebRTC ICE candidate 获取本机局域网 IP 前缀（如 192.168.1.x → 192.168.1）
+// 两端前缀相同 → 同一局域网
+async function getLocalIpPrefix() {
+  return new Promise((resolve) => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      const ips = new Set();
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) {
+          pc.close();
+          // 取第一个私有 IP 的 /24 前缀
+          for (const ip of ips) {
+            if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) {
+              resolve(ip.split('.').slice(0, 3).join('.'));
+              return;
+            }
+          }
+          resolve(null);
+          return;
+        }
+        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+        if (m) ips.add(m[1]);
+      };
+      pc.createOffer().then((o) => pc.setLocalDescription(o));
+      setTimeout(() => { pc.close(); resolve(null); }, 2000);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
 const props = defineProps({
   roomData: Object,
   playerName: String
@@ -364,10 +397,12 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  background: radial-gradient(circle at 20% 10%, rgba(255,255,255,0.18), transparent 40%),
-    radial-gradient(circle at 80% 20%, rgba(255,255,255,0.14), transparent 45%),
-    linear-gradient(135deg, #0b163a 0%, #1d2b64 40%, #764ba2 100%);
+  background: linear-gradient(135deg, #0b163a 0%, #1d2b64 40%, #764ba2 100%);
+  /* 去掉 radial-gradient 叠加，减少 GPU 合成层 */
 }
+
+/* 去掉云朵动画，它会持续触发重绘 */
+.cloud { display: none; }
 
 .top-bar {
   position: absolute;
@@ -464,10 +499,8 @@ onUnmounted(() => {
   gap: 12px;
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(0,0,0,0.22);
+  background: rgba(0,0,0,0.35);
   border: 1px solid rgba(255,255,255,0.16);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 .avatar-ring {
@@ -525,10 +558,8 @@ onUnmounted(() => {
   width: min(680px, calc(100vw - 36px));
   border-radius: 26px;
   padding: 18px;
-  background: rgba(0,0,0,0.22);
+  background: rgba(0,0,0,0.35);
   border: 1px solid rgba(255,255,255,0.16);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   z-index: 10;
 }
 
@@ -611,7 +642,7 @@ onUnmounted(() => {
   width: min(560px, calc(100vw - 36px));
   border-radius: 24px;
   padding: 18px;
-  background: rgba(10, 14, 39, 0.9);
+  background: rgba(10, 14, 39, 0.96);
   border: 1px solid rgba(255,255,255,0.18);
 }
 

@@ -152,6 +152,48 @@ function inviteFriend(friendId, gameType) {
   }
 }
 
+async function inviteFriendLan(friendId, gameType) {
+  if (getInviteCooldown(friendId, `${gameType}_lan`) > 0) return;
+  const socket = getSocket();
+  if (!socket) return;
+  // 获取本机局域网 IP 前缀
+  const prefix = await getLanIpPrefix();
+  if (!prefix) {
+    showToast('无法获取局域网 IP，请确认在同一网络下', 'warning');
+    return;
+  }
+  socket.emit('invite_friend', { friendId, gameType, lanPrefix: prefix, isLan: true });
+  inviteCooldowns.value[getInviteKey(friendId, `${gameType}_lan`)] = 10;
+  showToast('局域网邀请已发送', 'success');
+}
+
+async function getLanIpPrefix() {
+  return new Promise((resolve) => {
+    try {
+      const pc = new RTCPeerConnection({ iceServers: [] });
+      pc.createDataChannel('');
+      const ips = new Set();
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) {
+          pc.close();
+          for (const ip of ips) {
+            if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(ip)) {
+              resolve(ip.split('.').slice(0, 3).join('.'));
+              return;
+            }
+          }
+          resolve(null);
+          return;
+        }
+        const m = e.candidate.candidate.match(/(\d+\.\d+\.\d+\.\d+)/);
+        if (m) ips.add(m[1]);
+      };
+      pc.createOffer().then((o) => pc.setLocalDescription(o));
+      setTimeout(() => { pc.close(); resolve(null); }, 2000);
+    } catch { resolve(null); }
+  });
+}
+
 onMounted(() => {
   loadCache();
   fetchFriends();
@@ -289,6 +331,7 @@ watch(showModal, (open) => {
             <div class="invite-actions" v-if="onlineStatus[friend.id]">
               <button :disabled="getInviteCooldown(friend.id, 'plane-war') > 0" :class="{ cooling: getInviteCooldown(friend.id, 'plane-war') > 0 }" @click="inviteFriend(friend.id, 'plane-war')">{{ getInviteButtonText(friend.id, 'plane-war') }}</button>
               <button :disabled="getInviteCooldown(friend.id, 'tetris') > 0" :class="{ cooling: getInviteCooldown(friend.id, 'tetris') > 0 }" @click="inviteFriend(friend.id, 'tetris')">{{ getInviteButtonText(friend.id, 'tetris') }}</button>
+              <button class="lan-btn" :disabled="getInviteCooldown(friend.id, 'plane-war_lan') > 0" @click="inviteFriendLan(friend.id, 'plane-war')" title="局域网邀请（同一WiFi下延迟极低）">🏠 局域网</button>
             </div>
           </div>
         </div>
@@ -382,6 +425,13 @@ watch(showModal, (open) => {
   background: rgba(255,255,255,0.06);
   color: #b0b0b0;
   cursor: not-allowed;
+}
+
+.lan-btn {
+  background: rgba(0,255,180,0.12) !important;
+  border: 1px solid rgba(0,255,180,0.3) !important;
+  color: rgba(0,255,180,0.9) !important;
+  font-size: 11px !important;
 }
 
 .actions button {

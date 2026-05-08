@@ -164,6 +164,15 @@ const teammateHealth = ref(100);
 const teammateScore = ref(0);
 const wallCount = ref(0);
 const gameTime = ref(0);
+// Boss 血条（HUD 显示用）
+const currentBossHp = ref(null);      // null = 无 boss
+const currentBossHpMax = ref(1);
+const currentBossLevel = ref(1);
+const currentBossBarCount = ref(1);
+const currentBossHpPct = computed(() => {
+  if (currentBossHp.value === null || currentBossHpMax.value <= 0) return 0;
+  return Math.max(0, Math.min(100, (currentBossHp.value / currentBossHpMax.value) * 100));
+});
 let startTime = 0;
 let lastTime = 0;
 let simAccumMs = 0; // 联机模式：累积真实时间，按 SIM_TICK_MS 步进
@@ -1247,6 +1256,15 @@ const teammateWeapon = ref({
 
 let hudSyncInterval = null;
 function syncHUDState() {
+  // 更新 Boss 血条
+  if (currentBoss) {
+    currentBossHp.value = Math.max(0, currentBoss.health);
+    currentBossHpMax.value = currentBoss.maxHealth || 1;
+    currentBossLevel.value = currentBoss.level || 1;
+    currentBossBarCount.value = Math.max(1, Math.floor(Number(currentBoss.healthBars) || 1));
+  } else {
+    currentBossHp.value = null;
+  }
   updatePlayerHUD(1, {
     returnButton: !props.isMultiplayer || isHost,
     gameTime: gameTime.value,
@@ -5115,8 +5133,16 @@ onUnmounted(() => {
             </div>
           </div>
           
-          <!-- 时间 -->
-          <div class="hud-center-time">{{ hudTimeText }}</div>
+          <!-- 时间 + Boss 血条 -->
+          <div class="hud-center-col">
+            <div class="hud-center-time">{{ hudTimeText }}</div>
+            <div v-if="isMultiplayer && currentBossHp !== null" class="boss-bar-wrap">
+              <div class="boss-bar-label">BOSS LV.{{ currentBossLevel }} <span class="boss-bar-multi" v-if="currentBossBarCount > 1">×{{ currentBossBarCount }}</span></div>
+              <div class="boss-bar-track">
+                <div class="boss-bar-fill" :style="{ width: currentBossHpPct + '%', background: currentBossHpPct > 50 ? '#4caf50' : currentBossHpPct > 25 ? '#ff9800' : '#f44336' }"></div>
+              </div>
+            </div>
+          </div>
           
           <!-- 玩家 2 信息 -->
           <div class="hud-player-info p2-info">
@@ -5434,6 +5460,43 @@ onUnmounted(() => {
   color: rgba(255, 255, 255, 0.95);
   font-family: 'Monaco', monospace;
   padding-top: 2px;
+}
+
+.hud-center-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.boss-bar-wrap {
+  width: 120px;
+}
+
+.boss-bar-label {
+  font-size: 10px;
+  color: rgba(255,255,255,0.8);
+  text-align: center;
+  margin-bottom: 3px;
+  font-weight: 700;
+}
+
+.boss-bar-multi {
+  color: #ffd700;
+}
+
+.boss-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.18);
+  overflow: hidden;
+}
+
+.boss-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s linear, background 0.3s;
 }
 
 .hud-hp-block {
